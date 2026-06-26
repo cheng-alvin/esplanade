@@ -1,8 +1,8 @@
 //
 //  ContentView.swift
-//  Esplanade
+//  EsplanadeMacOS
 //
-//  Created by Alvin on 25/6/2026.
+//  Created by Alvin on 4/7/2026.
 //
 
 import SwiftUI
