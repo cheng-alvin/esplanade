@@ -1,14 +1,14 @@
 //
-//  EsplanadeApp.swift
-//  Esplanade
+//  EsplanadeMobileApp.swift
+//  EsplanadeMobile
 //
-//  Created by Alvin on 25/6/2026.
+//  Created by Alvin on 26/6/2026.
 //
 
 import SwiftUI
 
 @main
-struct EsplanadeApp: App {
+struct EsplanadeMobileApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
