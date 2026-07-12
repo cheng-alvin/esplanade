@@ -47,6 +47,11 @@ public final class PeripheralServiceManager: NSObject {
     ///   - localName: Optional local name of the peripheral to advertise.
     ///   - serviceUUIDs: Optional array of service UUIDs to advertise.
     public func startAdvertising(_ localName: String?, with serviceUUIDs: [CBUUID]) {
+        if serviceUUIDs.isEmpty {
+            logger.error("Cannot start advertising: No service UUIDs provided.")
+            return
+        }
+        
         guard peripheralManager.state == .poweredOn else {
             logger.error(
                 "Cannot start advertising: Bluetooth state is `\(self.peripheralManager.state.description)`"
