@@ -14,14 +14,12 @@ import os
 @MainActor
 public final class PeripheralServiceManager: NSObject {
 
+    private var peripheralManager: CBPeripheralManager!
     public weak var delegate: PeripheralServiceManagerDelegate?
+    public private(set) var services: [CBMutableService] = []
 
     public var bluetoothState: CBManagerState { peripheralManager.state }
     public var isAdvertising: Bool { peripheralManager.isAdvertising }
-
-    // --- The `CBPeripheralManager` instance! ---
-    private var peripheralManager: CBPeripheralManager!
-    // --------------------------------------------
 
     private let logger = Logger(
         subsystem: "com.cheng-alvin.EsplanadeCore", category: "BLEPeripheral")
@@ -51,7 +49,7 @@ public final class PeripheralServiceManager: NSObject {
             logger.error("Cannot start advertising: No service UUIDs provided.")
             return
         }
-        
+
         guard peripheralManager.state == .poweredOn else {
             logger.error(
                 "Cannot start advertising: Bluetooth state is `\(self.peripheralManager.state.description)`"
@@ -63,7 +61,7 @@ public final class PeripheralServiceManager: NSObject {
         if let name = localName { adData[CBAdvertisementDataLocalNameKey] = name }
         adData[CBAdvertisementDataServiceUUIDsKey] = serviceUUIDs
 
-        logger.info("Starting advertisement...")
+        logger.info("Advertising services: \(serviceUUIDs.map({ return "\($0) "}))")
         peripheralManager.startAdvertising(adData)
     }
 
@@ -75,12 +73,19 @@ public final class PeripheralServiceManager: NSObject {
     }
 
     public func add(service: CBMutableService) {
-        logger.info("Adding service \(service.uuid.uuidString)")
-        peripheralManager.add(service)
+        if !services.contains(where: { $0.uuid == service.uuid }) {
+            logger.info("Adding service \(service.uuid.uuidString)")
+            services.append(service)
+            peripheralManager.add(service)
+        } else {
+            logger.warning("Service \(service.uuid) already exists!")
+            return
+        }
     }
 
     public func remove(service: CBMutableService) {
         logger.info("Removing service \(service.uuid.uuidString)")
+        services.removeAll { $0.uuid == service.uuid }
         peripheralManager.remove(service)
     }
 }
@@ -141,19 +146,24 @@ extension PeripheralServiceManager: CBPeripheralManagerDelegate {
                     "Failed to add service \(service.uuid.uuidString): \(error.localizedDescription)"
                 )
             } else {
-                self.logger.info(
-                    "Successfully added service \(service.uuid.uuidString) to GATT database.")
+                self.logger.info("Successfully added service \(service.uuid.uuidString).")
             }
             self.delegate?.peripheralServiceManager(self, didAdd: service, error: error)
         }
     }
 
     public nonisolated func peripheralManager(
-        _ peripheral: CBPeripheralManager, willRestoreState dict: [String: Any]
+        _ peripheral: CBPeripheralManager, willRestoreState opts: [String: Any]
     ) {
         Task { @MainActor in
-            self.logger.info("Peripheral state is being restored by the system.")
-            self.delegate?.peripheralServiceManager(self, willRestoreState: dict)
+            if let restoredServices = opts[CBPeripheralManagerRestoredStateServicesKey]
+                as? [CBMutableService]
+            {
+                self.services = restoredServices
+                self.logger.info("Restored \(restoredServices.count) services.")
+            }
+
+            self.delegate?.peripheralServiceManager(self, willRestoreState: opts)
         }
     }
 }
