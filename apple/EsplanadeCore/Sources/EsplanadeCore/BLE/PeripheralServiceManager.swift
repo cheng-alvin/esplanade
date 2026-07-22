@@ -14,15 +14,16 @@ import os
 @MainActor
 public final class PeripheralServiceManager: NSObject {
 
+    private let logger = Logger(
+        subsystem: "com.cheng-alvin.EsplanadeCore", category: "BLEPeripheral")
+
     private var peripheralManager: CBPeripheralManager!
+
     public weak var delegate: PeripheralServiceManagerDelegate?
     public private(set) var services: [CBMutableService] = []
 
     public var bluetoothState: CBManagerState { peripheralManager.state }
     public var isAdvertising: Bool { peripheralManager.isAdvertising }
-
-    private let logger = Logger(
-        subsystem: "com.cheng-alvin.EsplanadeCore", category: "BLEPeripheral")
 
     public init(restoreIdentifier: String? = nil) {
         super.init()
@@ -45,15 +46,20 @@ public final class PeripheralServiceManager: NSObject {
     ///   - localName: Optional local name of the peripheral to advertise.
     ///   - serviceUUIDs: Optional array of service UUIDs to advertise.
     public func startAdvertising(_ localName: String?, with serviceUUIDs: [CBUUID]) {
+        let currentPeripheralState = self.peripheralManager.state.description
+
+        guard !peripheralManager.isAdvertising else {
+            logger.error("Cannot start advertising: Peripheral is already advertising")
+            return
+        }
+
         if serviceUUIDs.isEmpty {
             logger.error("Cannot start advertising: No service UUIDs provided.")
             return
         }
 
         guard peripheralManager.state == .poweredOn else {
-            logger.error(
-                "Cannot start advertising: Bluetooth state is `\(self.peripheralManager.state.description)`"
-            )
+            logger.error("Cannot start advertising: BLE is currently `\(currentPeripheralState)`")
             return
         }
 
@@ -61,7 +67,6 @@ public final class PeripheralServiceManager: NSObject {
         if let name = localName { adData[CBAdvertisementDataLocalNameKey] = name }
         adData[CBAdvertisementDataServiceUUIDsKey] = serviceUUIDs
 
-        logger.info("Advertising services: \(serviceUUIDs.map({ return "\($0) "}))")
         peripheralManager.startAdvertising(adData)
     }
 
@@ -72,58 +77,43 @@ public final class PeripheralServiceManager: NSObject {
         }
     }
 
-    public func add(service: CBMutableService) {
-        if !services.contains(where: { $0.uuid == service.uuid }) {
-            logger.info("Adding service \(service.uuid.uuidString)")
-            services.append(service)
-            peripheralManager.add(service)
-        } else {
-            logger.warning("Service \(service.uuid) already exists!")
-            return
+    public func shutdown() {
+        Task { @MainActor in
+            if self.peripheralManager.isAdvertising { self.stopAdvertising() }
+
+            let serviceUUIDsToClear = self.services.map { $0.uuid }
+            for service in self.services { self.peripheralManager.remove(service) }
+
+            self.services.removeAll()
+            // self.serviceImplementations.removeAll() - only applicable in the future, TBC
+
+            self.logger.info("Peripheral manager has been shutdown")
         }
     }
 
-    public func remove(service: CBMutableService) {
-        logger.info("Removing service \(service.uuid.uuidString)")
-        services.removeAll { $0.uuid == service.uuid }
-        peripheralManager.remove(service)
-    }
-}
-
-// MARK: - PeripheralServiceManagerDelegate Protocol
-
-@MainActor
-public protocol PeripheralServiceManagerDelegate: AnyObject {
-    /// Called when the underlying CoreBluetooth peripheral manager updates its hardware power state.
-    func peripheralServiceManager(
-        _ manager: PeripheralServiceManager, didUpdateState state: CBManagerState)
-
-    /// Called when the peripheral manager finishes attempting to start advertising.
-    /// - Parameter error: An error if advertising failed to start, or `nil` on success.
-    func peripheralServiceManager(
-        _ manager: PeripheralServiceManager, didStartAdvertising error: Error?)
-
-    /// Called when a service is successfully published/added to the local GATT database.
-    /// - Parameters:
-    ///   - service: The service that was added.
-    ///   - error: An error if publishing the service failed, or `nil` on success.
-    func peripheralServiceManager(
-        _ manager: PeripheralServiceManager, didAdd service: CBService, error: Error?)
-
-    /// Called when the system is restoring the peripheral manager's state after background termination.
-    /// - Parameter dict: A dictionary containing preserved state information, such as active services or advertisement data.
-    func peripheralServiceManager(
-        _ manager: PeripheralServiceManager, willRestoreState dict: [String: Any])
-}
-
-extension PeripheralServiceManager: CBPeripheralManagerDelegate {
     public nonisolated func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         Task { @MainActor in
             self.logger.info("Peripheral state updated: \(String(describing: peripheral.state))")
             self.delegate?.peripheralServiceManager(self, didUpdateState: peripheral.state)
         }
     }
+}
 
+// MARK: - Conformance to `PeripheralServiceManagerDelegate`
+
+@MainActor
+public protocol PeripheralServiceManagerDelegate: AnyObject {
+    func peripheralServiceManager(
+        _ manager: PeripheralServiceManager, didUpdateState state: CBManagerState)
+    func peripheralServiceManager(
+        _ manager: PeripheralServiceManager, didStartAdvertising error: Error?)
+    func peripheralServiceManager(
+        _ manager: PeripheralServiceManager, didAdd service: CBService, error: Error?)
+    func peripheralServiceManager(
+        _ manager: PeripheralServiceManager, willRestoreState dict: [String: Any])
+}
+
+extension PeripheralServiceManager: CBPeripheralManagerDelegate {
     public nonisolated func peripheralManagerDidStartAdvertising(
         _ peripheral: CBPeripheralManager, error: Error?
     ) {
