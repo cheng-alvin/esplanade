@@ -19,6 +19,8 @@ public protocol PeripheralCharacteristic: AnyObject {
     var uuid: CBUUID { get }
     var properties: CBCharacteristicProperties { get }
     var permissions: CBAttributePermissions { get }
+
+    /// Cached state data within this specific BLE characteristic in a `uint8_t` array
     var value: Data? { get set }
 
     /// Builds and returns the underlying `CBMutableCharacteristic`.
@@ -31,7 +33,6 @@ public protocol PeripheralCharacteristic: AnyObject {
     func handleReadRequest(_ request: CBATTRequest) -> CBATTError.Code
     func handleWriteRequests(_ requests: [CBATTRequest]) -> CBATTError.Code
 
-    /// Centrals currently subscribed to notifications or indications.
     var subscribedCentrals: [CBCentral] { get set }
 
     func didSubscribe(central: CBCentral)
