@@ -52,7 +52,7 @@ public final class PeripheralServiceManager: NSObject {
         }
 
         guard peripheralManager.state == .poweredOn else {
-            logger.error("Cannot start advertising: BLE is currently `\(currentPeripheralState)`")
+            logger.error("Cannot start advertising: state is `\(currentPeripheralState)`")
             return
         }
 
@@ -192,8 +192,9 @@ extension PeripheralServiceManager {
         if let error = error {
             logger.error("Failed to start advertising: \(error.localizedDescription)")
         } else {
-            logger.info("Peripheral manager successfully started advertising.")
+            logger.info("Peripheral started advertising.")
         }
+
         delegate?.peripheralServiceManager(self, didStartAdvertising: error)
     }
 
@@ -203,7 +204,7 @@ extension PeripheralServiceManager {
                 "Failed to add service \(service.uuid.uuidString): \(error.localizedDescription)"
             )
         } else {
-            logger.info("Successfully added service \(service.uuid.uuidString).")
+            logger.info("Added service \(service.uuid.uuidString).")
         }
         delegate?.peripheralServiceManager(self, didAdd: service, error: error)
     }
@@ -252,29 +253,33 @@ extension PeripheralServiceManager {
     }
 
     fileprivate func handleDidSubscribe(to characteristic: CBCharacteristic, central: CBCentral) {
+        let characteristicID = characteristic.uuid.uuidString
+        let centralID = central.identifier.uuidString
+
         guard let serviceUUID = characteristic.service?.uuid,
             let implementation = serviceImplementations[serviceUUID]
         else {
-            logger.error("\(characteristic.uuid.uuidString) not found")
+            logger.error("\(characteristicID) not found")
             return
         }
 
-        logger.info(
-            "\(central.identifier.uuidString) subscribed to \(characteristic.uuid.uuidString)")
+        logger.info("\(centralID) subscribed to \(characteristicID)")
         implementation.didSubscribe(to: characteristic, central: central)
     }
 
     fileprivate func handleDidUnsubscribe(from characteristic: CBCharacteristic, central: CBCentral)
     {
+        let characteristicID = characteristic.uuid.uuidString
+        let centralID = central.identifier.uuidString
+
         guard let serviceUUID = characteristic.service?.uuid,
             let implementation = serviceImplementations[serviceUUID]
         else {
-            logger.error("\(characteristic.uuid.uuidString) not found")
+            logger.error("\(characteristicID) not found")
             return
         }
 
-        logger.info(
-            "\(central.identifier.uuidString) unsubscribed from \(characteristic.uuid.uuidString)")
+        logger.info("\(centralID) unsubscribed from \(characteristicID)")
         implementation.didUnsubscribe(from: characteristic, central: central)
     }
 }
