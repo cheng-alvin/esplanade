@@ -18,9 +18,10 @@ public final class PeripheralServiceManager: NSObject {
         subsystem: "com.cheng-alvin.EsplanadeCore", category: "BLEPeripheral")
 
     private var peripheralManager: CBPeripheralManager!
+    private var serviceImplementations: [CBUUID: any PeripheralServiceProtocol] = [:]
+    public private(set) var services: [CBMutableService] = []
 
     public weak var delegate: PeripheralServiceManagerDelegate?
-    public private(set) var services: [CBMutableService] = []
 
     public var bluetoothState: CBManagerState { peripheralManager.state }
     public var isAdvertising: Bool { peripheralManager.isAdvertising }
@@ -40,18 +41,10 @@ public final class PeripheralServiceManager: NSObject {
     }
 
     // MARK: - Public API
-
-    /// Starts advertising local services.
-    /// - Parameters:
-    ///   - localName: Optional local name of the peripheral to advertise.
-    ///   - serviceUUIDs: Optional array of service UUIDs to advertise.
     public func startAdvertising(_ localName: String?, with serviceUUIDs: [CBUUID]) {
         let currentPeripheralState = self.peripheralManager.state.description
 
-        guard !peripheralManager.isAdvertising else {
-            logger.error("Cannot start advertising: Peripheral is already advertising")
-            return
-        }
+        guard !peripheralManager.isAdvertising else { return }
 
         if serviceUUIDs.isEmpty {
             logger.error("Cannot start advertising: No service UUIDs provided.")
@@ -77,29 +70,43 @@ public final class PeripheralServiceManager: NSObject {
         }
     }
 
-    public func shutdown() {
-        Task { @MainActor in
-            if self.peripheralManager.isAdvertising { self.stopAdvertising() }
+    public func add(service peripheralService: any PeripheralServiceProtocol) {
+        let mutableService = peripheralService.buildMutableService()
 
-            let serviceUUIDsToClear = self.services.map { $0.uuid }
-            for service in self.services { self.peripheralManager.remove(service) }
+        if !services.contains(where: { $0.uuid == mutableService.uuid }) {
+            services.append(mutableService)
+            peripheralManager.add(mutableService)
+            serviceImplementations[mutableService.uuid] = peripheralService
 
-            self.services.removeAll()
-            // self.serviceImplementations.removeAll() - only applicable in the future, TBC
-
-            self.logger.info("Peripheral manager has been shutdown")
+            logger.info("\(mutableService.uuid.uuidString) added")
+        } else {
+            logger.warning("Service \(mutableService.uuid.uuidString) already exists!")
         }
     }
 
-    public nonisolated func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
+    public func remove(service: CBMutableService) {
+        services.removeAll { $0.uuid == service.uuid }
+        serviceImplementations.removeValue(forKey: service.uuid)
+        peripheralManager.remove(service)
+
+        logger.info("Removed \(service.uuid.uuidString)")
+    }
+
+    public func cleanup() {
         Task { @MainActor in
-            self.logger.info("Peripheral state updated: \(String(describing: peripheral.state))")
-            self.delegate?.peripheralServiceManager(self, didUpdateState: peripheral.state)
+            for service in self.services {
+                self.peripheralManager.remove(service)
+            }
+
+            self.serviceImplementations.removeAll()
+            self.services.removeAll()
+
+            self.logger.info("Peripheral manager cleaned up")
         }
     }
 }
 
-// MARK: - Conformance to `PeripheralServiceManagerDelegate`
+// MARK: - PeripheralServiceManagerDelegate Protocol
 
 @MainActor
 public protocol PeripheralServiceManagerDelegate: AnyObject {
@@ -109,54 +116,170 @@ public protocol PeripheralServiceManagerDelegate: AnyObject {
         _ manager: PeripheralServiceManager, didStartAdvertising error: Error?)
     func peripheralServiceManager(
         _ manager: PeripheralServiceManager, didAdd service: CBService, error: Error?)
+
+    /// Called when the peripheral manager is restoring its state (e.g., after re-launching
+    /// or if a restore identifier was used). This method allows us to rebuild our
+    /// service list using the dictionary provided by the system.
     func peripheralServiceManager(
         _ manager: PeripheralServiceManager, willRestoreState dict: [String: Any])
 }
 
+// MARK: - CBPeripheralManagerDelegate Conformance
+
 extension PeripheralServiceManager: CBPeripheralManagerDelegate {
+    public nonisolated func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
+        Task { @MainActor in self.handleDidUpdateState(peripheral) }
+    }
+
     public nonisolated func peripheralManagerDidStartAdvertising(
         _ peripheral: CBPeripheralManager, error: Error?
     ) {
-        Task { @MainActor in
-            if let error = error {
-                self.logger.error("Failed to start advertising: \(error.localizedDescription)")
-            } else {
-                self.logger.info("Peripheral manager successfully started advertising.")
-            }
-            self.delegate?.peripheralServiceManager(self, didStartAdvertising: error)
-        }
+        Task { @MainActor in self.handleDidStartAdvertising(peripheral, error: error) }
     }
 
     public nonisolated func peripheralManager(
         _ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?
     ) {
-        Task { @MainActor in
-            if let error = error {
-                self.logger.error(
-                    "Failed to add service \(service.uuid.uuidString): \(error.localizedDescription)"
-                )
-            } else {
-                self.logger.info("Successfully added service \(service.uuid.uuidString).")
-            }
-            self.delegate?.peripheralServiceManager(self, didAdd: service, error: error)
-        }
+        Task { @MainActor in self.handleDidAdd(service, error: error) }
     }
 
     public nonisolated func peripheralManager(
         _ peripheral: CBPeripheralManager, willRestoreState opts: [String: Any]
     ) {
-        Task { @MainActor in
-            if let restoredServices = opts[CBPeripheralManagerRestoredStateServicesKey]
-                as? [CBMutableService]
-            {
-                self.services = restoredServices
-                self.logger.info("Restored \(restoredServices.count) services.")
-            }
+        Task { @MainActor in self.handleWillRestoreState(opts) }
+    }
 
-            self.delegate?.peripheralServiceManager(self, willRestoreState: opts)
+    public nonisolated func peripheralManager(
+        _ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest
+    ) {
+        Task { @MainActor in self.handleDidReceiveRead(request) }
+    }
+
+    public nonisolated func peripheralManager(
+        _ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]
+    ) {
+        Task { @MainActor in self.handleDidReceiveWrite(requests) }
+    }
+
+    public nonisolated func peripheralManager(
+        _ peripheral: CBPeripheralManager, central: CBCentral,
+        didSubscribeTo characteristic: CBCharacteristic
+    ) {
+        Task { @MainActor in
+            self.handleDidSubscribe(to: characteristic, central: central)
+        }
+    }
+
+    public nonisolated func peripheralManager(
+        _ peripheral: CBPeripheralManager, central: CBCentral,
+        didUnsubscribeFrom characteristic: CBCharacteristic
+    ) {
+        Task { @MainActor in
+            self.handleDidUnsubscribe(from: characteristic, central: central)
         }
     }
 }
+
+// MARK: - CBPeripheralManager Handling Helpers
+
+extension PeripheralServiceManager {
+    fileprivate func handleDidUpdateState(_ peripheral: CBPeripheralManager) {
+        logger.info("Peripheral state updated: \(String(describing: peripheral.state))")
+        delegate?.peripheralServiceManager(self, didUpdateState: peripheral.state)
+    }
+
+    fileprivate func handleDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
+        if let error = error {
+            logger.error("Failed to start advertising: \(error.localizedDescription)")
+        } else {
+            logger.info("Peripheral manager successfully started advertising.")
+        }
+        delegate?.peripheralServiceManager(self, didStartAdvertising: error)
+    }
+
+    fileprivate func handleDidAdd(_ service: CBService, error: Error?) {
+        if let error = error {
+            logger.error(
+                "Failed to add service \(service.uuid.uuidString): \(error.localizedDescription)"
+            )
+        } else {
+            logger.info("Successfully added service \(service.uuid.uuidString).")
+        }
+        delegate?.peripheralServiceManager(self, didAdd: service, error: error)
+    }
+
+    fileprivate func handleWillRestoreState(_ opts: [String: Any]) {
+        if let restoredServices = opts[CBPeripheralManagerRestoredStateServicesKey]
+            as? [CBMutableService]
+        {
+            services = restoredServices
+            logger.info("Restored \(restoredServices.count) services.")
+        }
+
+        delegate?.peripheralServiceManager(self, willRestoreState: opts)
+    }
+
+    fileprivate func handleDidReceiveRead(_ request: CBATTRequest) {
+        guard let serviceUUID = request.characteristic.service?.uuid,
+            let implementation = serviceImplementations[serviceUUID]
+        else {
+            let serviceName = request.characteristic.service?.uuid.uuidString ?? "(unknown)"
+            logger.error("Service \(serviceName) does not exist")
+            peripheralManager.respond(to: request, withResult: .attributeNotFound)
+
+            return
+        }
+
+        let result = implementation.handleReadRequest(request)
+        peripheralManager.respond(to: request, withResult: result)
+    }
+
+    fileprivate func handleDidReceiveWrite(_ requests: [CBATTRequest]) {
+        guard let firstRequest = requests.first,
+            let serviceUUID = firstRequest.characteristic.service?.uuid,
+            let implementation = serviceImplementations[serviceUUID]
+        else {
+            logger.warning("No implementation found for write requests.")
+            if let first = requests.first {
+                peripheralManager.respond(to: first, withResult: .attributeNotFound)
+            }
+
+            return
+        }
+
+        let result = implementation.handleWriteRequests(requests)
+        peripheralManager.respond(to: firstRequest, withResult: result)
+    }
+
+    fileprivate func handleDidSubscribe(to characteristic: CBCharacteristic, central: CBCentral) {
+        guard let serviceUUID = characteristic.service?.uuid,
+            let implementation = serviceImplementations[serviceUUID]
+        else {
+            logger.error("\(characteristic.uuid.uuidString) not found")
+            return
+        }
+
+        logger.info(
+            "\(central.identifier.uuidString) subscribed to \(characteristic.uuid.uuidString)")
+        implementation.didSubscribe(to: characteristic, central: central)
+    }
+
+    fileprivate func handleDidUnsubscribe(from characteristic: CBCharacteristic, central: CBCentral)
+    {
+        guard let serviceUUID = characteristic.service?.uuid,
+            let implementation = serviceImplementations[serviceUUID]
+        else {
+            logger.error("\(characteristic.uuid.uuidString) not found")
+            return
+        }
+
+        logger.info(
+            "\(central.identifier.uuidString) unsubscribed from \(characteristic.uuid.uuidString)")
+        implementation.didUnsubscribe(from: characteristic, central: central)
+    }
+}
+
+// MARK: - CBManagerState CustomStringConvertible
 
 extension CBManagerState: @retroactive CustomStringConvertible {
     public var description: String {
