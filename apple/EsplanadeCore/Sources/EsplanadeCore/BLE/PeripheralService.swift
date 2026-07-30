@@ -22,7 +22,7 @@ public protocol PeripheralServiceProtocol: AnyObject {
     func buildMutableService() -> CBMutableService
 
     func didSubscribe(to characteristic: CBCharacteristic, central: CBCentral)
-    func didUnsubscribe(from characteristic: CBCharacteristic, central: CBCentral)A
+    func didUnsubscribe(from characteristic: CBCharacteristic, central: CBCentral)
 
     /// Handles read and write requests for this specific characteristic.
     /// - Parameter request: The read request to handle.
@@ -66,7 +66,7 @@ open class PeripheralService: PeripheralServiceProtocol {
     public var peripheralCharacteristics: [any PeripheralCharacteristic] = [] {
         didSet {
             self.characteristics = peripheralCharacteristics.map {
-                $0.buildMutableserviceCharacteristic()
+                $0.buildMutableCharacteristic()
             }
         }
     }
@@ -81,7 +81,7 @@ open class PeripheralService: PeripheralServiceProtocol {
         isPrimary: Bool = true,
         characteristics: [any PeripheralCharacteristic]
     ) {
-        self.characteristics = characteristics.map { $0.buildMutableserviceCharacteristic() }
+        self.characteristics = characteristics.map { $0.buildMutableCharacteristic() }
 
         self.uuid = uuid
         self.isPrimary = isPrimary
@@ -96,7 +96,7 @@ open class PeripheralService: PeripheralServiceProtocol {
 
     open func handleReadRequest(_ request: CBATTRequest) -> CBATTError.Code {
         return serviceCharacteristic(request.characteristic.uuid)?
-        .handleReadRequest(request) ?? .requestNotSupported
+            .handleReadRequest(request) ?? .requestNotSupported
     }
 
     open func handleWriteRequests(_ requests: [CBATTRequest]) -> CBATTError.Code {

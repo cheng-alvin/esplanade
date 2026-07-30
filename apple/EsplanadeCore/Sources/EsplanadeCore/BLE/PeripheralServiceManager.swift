@@ -110,17 +110,18 @@ public final class PeripheralServiceManager: NSObject {
 
 @MainActor
 public protocol PeripheralServiceManagerDelegate: AnyObject {
-    func peripheralServiceManager(
+    func peripheralManager(
         _ manager: PeripheralServiceManager, didUpdateState state: CBManagerState)
-    func peripheralServiceManager(
-        _ manager: PeripheralServiceManager, didStartAdvertising error: Error?)
-    func peripheralServiceManager(
+
+    func peripheralManager(_ manager: PeripheralServiceManager, didStartAdvertising error: Error?)
+
+    func peripheralManager(
         _ manager: PeripheralServiceManager, didAdd service: CBService, error: Error?)
 
     /// Called when the peripheral manager is restoring its state (e.g., after re-launching
-    /// or if a restore identifier was used). This method allows us to rebuild our
-    /// service list using the dictionary provided by the system.
-    func peripheralServiceManager(
+    /// or if a restore identifier was used). This method allows us to rebuild the service
+    /// list using the dictionary provided by the system.
+    func peripheralManager(
         _ manager: PeripheralServiceManager, willRestoreState dict: [String: Any])
 }
 
@@ -128,7 +129,9 @@ public protocol PeripheralServiceManagerDelegate: AnyObject {
 
 extension PeripheralServiceManager: CBPeripheralManagerDelegate {
     public nonisolated func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
-        Task { @MainActor in self.handleDidUpdateState(peripheral) }
+        Task { @MainActor in
+            self.handleDidUpdateState(peripheral)
+        }
     }
 
     public nonisolated func peripheralManagerDidStartAdvertising(
@@ -185,7 +188,7 @@ extension PeripheralServiceManager: CBPeripheralManagerDelegate {
 extension PeripheralServiceManager {
     fileprivate func handleDidUpdateState(_ peripheral: CBPeripheralManager) {
         logger.info("Peripheral state updated: \(String(describing: peripheral.state))")
-        delegate?.peripheralServiceManager(self, didUpdateState: peripheral.state)
+        delegate?.peripheralManager(self, didUpdateState: peripheral.state)
     }
 
     fileprivate func handleDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
@@ -195,7 +198,7 @@ extension PeripheralServiceManager {
             logger.info("Peripheral started advertising.")
         }
 
-        delegate?.peripheralServiceManager(self, didStartAdvertising: error)
+        delegate?.peripheralManager(self, didStartAdvertising: error)
     }
 
     fileprivate func handleDidAdd(_ service: CBService, error: Error?) {
@@ -206,7 +209,7 @@ extension PeripheralServiceManager {
         } else {
             logger.info("Added service \(service.uuid.uuidString).")
         }
-        delegate?.peripheralServiceManager(self, didAdd: service, error: error)
+        delegate?.peripheralManager(self, didAdd: service, error: error)
     }
 
     fileprivate func handleWillRestoreState(_ opts: [String: Any]) {
@@ -217,7 +220,7 @@ extension PeripheralServiceManager {
             logger.info("Restored \(restoredServices.count) services.")
         }
 
-        delegate?.peripheralServiceManager(self, willRestoreState: opts)
+        delegate?.peripheralManager(self, willRestoreState: opts)
     }
 
     fileprivate func handleDidReceiveRead(_ request: CBATTRequest) {
