@@ -108,6 +108,10 @@ public final class PeripheralServiceManager: NSObject {
 
 // MARK: - PeripheralServiceManagerDelegate Protocol
 
+/// A delegate protocol that receives updates and events from the `PeripheralServiceManager`,
+/// allowing the conforming type to react to state changes, advertising status, and BLE
+/// service interactions.
+
 @MainActor
 public protocol PeripheralServiceManagerDelegate: AnyObject {
     func peripheralManager(
