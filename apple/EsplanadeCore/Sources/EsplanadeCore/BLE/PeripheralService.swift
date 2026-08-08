@@ -56,7 +56,7 @@ extension PeripheralServiceProtocol {
 // MARK: - PeripheralService
 
 /// A base class providing a default implementation of the `PeripheralServiceProtocol`.
-/// Susbsequent characteristics will conform to `PeripheralCharacteristic`, with all
+/// Subsequent characteristics will conform to `PeripheralCharacteristic`, with all
 /// incoming read, write, and notification requests automatically routed to them.
 open class PeripheralService: PeripheralServiceProtocol {
     public let uuid: CBUUID
@@ -88,7 +88,7 @@ open class PeripheralService: PeripheralServiceProtocol {
         self.peripheralCharacteristics = characteristics
     }
 
-    // MARK: - Internal Helper funciton
+    // MARK: - Internal Helper function
 
     private func serviceCharacteristic(_ uuid: CBUUID) -> (any PeripheralCharacteristic)? {
         return peripheralCharacteristics.first(where: { $0.uuid == uuid })
