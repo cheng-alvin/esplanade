@@ -123,167 +123,161 @@ public protocol PeripheralServiceManagerDelegate: AnyObject {
     /// list using the dictionary provided by the system.
     func peripheralManager(
         _ manager: PeripheralServiceManager, willRestoreState dict: [String: Any])
+
+    func peripheralManagerIsReady(toUpdateSubscribers manager: PeripheralServiceManager)
+}
+
+extension PeripheralServiceManagerDelegate {
+    public func peripheralManagerIsReady(toUpdateSubscribers manager: PeripheralServiceManager) {}
 }
 
 // MARK: - CBPeripheralManagerDelegate Conformance
 
-extension PeripheralServiceManager: CBPeripheralManagerDelegate {
-    public nonisolated func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
-        Task { @MainActor in
-            self.handleDidUpdateState(peripheral)
-        }
-    }
-
-    public nonisolated func peripheralManagerDidStartAdvertising(
-        _ peripheral: CBPeripheralManager, error: Error?
-    ) {
-        Task { @MainActor in self.handleDidStartAdvertising(peripheral, error: error) }
-    }
-
-    public nonisolated func peripheralManager(
-        _ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?
-    ) {
-        Task { @MainActor in self.handleDidAdd(service, error: error) }
-    }
-
-    public nonisolated func peripheralManager(
-        _ peripheral: CBPeripheralManager, willRestoreState opts: [String: Any]
-    ) {
-        Task { @MainActor in self.handleWillRestoreState(opts) }
-    }
-
-    public nonisolated func peripheralManager(
-        _ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest
-    ) {
-        Task { @MainActor in self.handleDidReceiveRead(request) }
-    }
-
-    public nonisolated func peripheralManager(
-        _ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]
-    ) {
-        Task { @MainActor in self.handleDidReceiveWrite(requests) }
-    }
-
-    public nonisolated func peripheralManager(
-        _ peripheral: CBPeripheralManager, central: CBCentral,
-        didSubscribeTo characteristic: CBCharacteristic
-    ) {
-        Task { @MainActor in
-            self.handleDidSubscribe(to: characteristic, central: central)
-        }
-    }
-
-    public nonisolated func peripheralManager(
-        _ peripheral: CBPeripheralManager, central: CBCentral,
-        didUnsubscribeFrom characteristic: CBCharacteristic
-    ) {
-        Task { @MainActor in
-            self.handleDidUnsubscribe(from: characteristic, central: central)
-        }
-    }
-}
-
-// MARK: - CBPeripheralManager Handling Helpers
-
-extension PeripheralServiceManager {
-    fileprivate func handleDidUpdateState(_ peripheral: CBPeripheralManager) {
+extension PeripheralServiceManager: @preconcurrency CBPeripheralManagerDelegate {
+    @MainActor
+    public func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         logger.info("Peripheral state updated: \(String(describing: peripheral.state))")
         delegate?.peripheralManager(self, didUpdateState: peripheral.state)
     }
 
-    fileprivate func handleDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
-        if let error = error {
-            logger.error("Failed to start advertising: \(error.localizedDescription)")
-        } else {
-            logger.info("Peripheral started advertising.")
-        }
-
+    @MainActor
+    public func peripheralManagerDidStartAdvertising(
+        _ peripheral: CBPeripheralManager, error: Error?
+    ) {
+        logResult(of: "Advertisement start", error: error)
         delegate?.peripheralManager(self, didStartAdvertising: error)
     }
 
-    fileprivate func handleDidAdd(_ service: CBService, error: Error?) {
-        if let error = error {
-            logger.error(
-                "Failed to add service \(service.uuid.uuidString): \(error.localizedDescription)"
-            )
-        } else {
-            logger.info("Added service \(service.uuid.uuidString).")
-        }
+    @MainActor
+    public func peripheralManager(
+        _ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?
+    ) {
+        logResult(of: "Service \(service.uuid.uuidString) addition", error: error)
         delegate?.peripheralManager(self, didAdd: service, error: error)
     }
 
-    fileprivate func handleWillRestoreState(_ opts: [String: Any]) {
+    @MainActor
+    public func peripheralManager(
+        _ peripheral: CBPeripheralManager, willRestoreState opts: [String: Any]
+    ) {
         if let restoredServices = opts[CBPeripheralManagerRestoredStateServicesKey]
             as? [CBMutableService]
         {
             services = restoredServices
             logger.info("Restored \(restoredServices.count) services.")
         }
-
         delegate?.peripheralManager(self, willRestoreState: opts)
     }
 
-    fileprivate func handleDidReceiveRead(_ request: CBATTRequest) {
-        guard let serviceUUID = request.characteristic.service?.uuid,
-            let implementation = serviceImplementations[serviceUUID]
-        else {
+    @MainActor
+    public func peripheralManager(
+        _ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest
+    ) {
+        guard let implementation = serviceImplementation(for: request.characteristic) else {
             let serviceName = request.characteristic.service?.uuid.uuidString ?? "(unknown)"
             logger.error("Service \(serviceName) does not exist")
-            peripheralManager.respond(to: request, withResult: .attributeNotFound)
-
+            peripheral.respond(to: request, withResult: .attributeNotFound)
             return
         }
 
         let result = implementation.handleReadRequest(request)
-        peripheralManager.respond(to: request, withResult: result)
+        peripheral.respond(to: request, withResult: result)
     }
 
-    fileprivate func handleDidReceiveWrite(_ requests: [CBATTRequest]) {
+    @MainActor
+    public func peripheralManager(
+        _ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]
+    ) {
         guard let firstRequest = requests.first,
-            let serviceUUID = firstRequest.characteristic.service?.uuid,
-            let implementation = serviceImplementations[serviceUUID]
+            let implementation = serviceImplementation(for: firstRequest.characteristic)
         else {
             logger.warning("No implementation found for write requests.")
             if let first = requests.first {
-                peripheralManager.respond(to: first, withResult: .attributeNotFound)
+                peripheral.respond(to: first, withResult: .attributeNotFound)
             }
-
             return
         }
 
         let result = implementation.handleWriteRequests(requests)
-        peripheralManager.respond(to: firstRequest, withResult: result)
+        peripheral.respond(to: firstRequest, withResult: result)
     }
 
-    fileprivate func handleDidSubscribe(to characteristic: CBCharacteristic, central: CBCentral) {
+    @MainActor
+    public func peripheralManager(
+        _ peripheral: CBPeripheralManager, central: CBCentral,
+        didSubscribeTo characteristic: CBCharacteristic
+    ) {
+        handleSubscriptionChange(.subscribing, of: central, to: characteristic)
+    }
+
+    @MainActor
+    public func peripheralManager(
+        _ peripheral: CBPeripheralManager, central: CBCentral,
+        didUnsubscribeFrom characteristic: CBCharacteristic
+    ) {
+        handleSubscriptionChange(.unsubscribing, of: central, to: characteristic)
+    }
+
+    @MainActor
+    public func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
+        logger.info("Peripheral manager is ready to update subscribers.")
+        delegate?.peripheralManagerIsReady(toUpdateSubscribers: self)
+    }
+}
+
+// MARK: - Private Helpers
+
+extension PeripheralServiceManager {
+    private func logResult(of operation: String, error: (any Error)?) {
+        if let error {
+            logger.error("\(operation) failed: \(error.localizedDescription)")
+        } else {
+            logger.info("\(operation) completed successfully.")
+        }
+    }
+
+    private func serviceImplementation(for characteristic: CBCharacteristic) -> (
+        any PeripheralServiceProtocol
+    )? {
+        guard let serviceUUID = characteristic.service?.uuid else { return nil }
+        return serviceImplementations[serviceUUID]
+    }
+
+    private enum SubscriptionChange {
+        case subscribing
+        case unsubscribing
+
+        func logMessage() -> String {
+            switch self {
+            case .subscribing: return "subscribed to"
+            case .unsubscribing: return "unsubscribed from"
+            }
+        }
+
+        func logMessage(central: String, characteristic: String) -> String {
+            "\(central) \(self.logMessage()) \(characteristic)"
+        }
+    }
+
+    private func handleSubscriptionChange(
+        _ change: SubscriptionChange,
+        of central: CBCentral,
+        to characteristic: CBCharacteristic
+    ) {
         let characteristicID = characteristic.uuid.uuidString
         let centralID = central.identifier.uuidString
 
-        guard let serviceUUID = characteristic.service?.uuid,
-            let implementation = serviceImplementations[serviceUUID]
-        else {
+        guard let implementation = serviceImplementation(for: characteristic) else {
             logger.error("\(characteristicID) not found")
             return
         }
 
-        logger.info("\(centralID) subscribed to \(characteristicID)")
-        implementation.didSubscribe(to: characteristic, central: central)
-    }
+        logger.info("\(change.logMessage(central: centralID, characteristic: characteristicID))")
 
-    fileprivate func handleDidUnsubscribe(from characteristic: CBCharacteristic, central: CBCentral)
-    {
-        let characteristicID = characteristic.uuid.uuidString
-        let centralID = central.identifier.uuidString
-
-        guard let serviceUUID = characteristic.service?.uuid,
-            let implementation = serviceImplementations[serviceUUID]
-        else {
-            logger.error("\(characteristicID) not found")
-            return
+        switch change {
+        case .subscribing: implementation.didSubscribe(to: characteristic, central: central)
+        case .unsubscribing: implementation.didUnsubscribe(from: characteristic, central: central)
         }
-
-        logger.info("\(centralID) unsubscribed from \(characteristicID)")
-        implementation.didUnsubscribe(from: characteristic, central: central)
     }
 }
 
