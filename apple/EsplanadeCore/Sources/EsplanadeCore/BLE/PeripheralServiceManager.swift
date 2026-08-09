@@ -113,7 +113,7 @@ public final class PeripheralServiceManager: NSObject {
 /// BLE service interactions.
 @MainActor
 public protocol PeripheralServiceManagerDelegate: AnyObject {
-    /// Invoked when the peripheral manager's state updates. added for conformance 
+    /// Invoked when the peripheral manager's state updates. added for conformance
     /// to CoreBluetooth's `CBPeripheralManagerDelegate` protocol.
     /// - Parameters:
     ///   - manager: The `PeripheralServiceManager` instance.
@@ -122,9 +122,6 @@ public protocol PeripheralServiceManagerDelegate: AnyObject {
         _ manager: PeripheralServiceManager, didUpdateState state: CBManagerState)
 
     func peripheralManager(_ manager: PeripheralServiceManager, didStartAdvertising error: Error?)
-
-    func peripheralManager(
-        _ manager: PeripheralServiceManager, didAdd service: CBService, error: Error?)
 
     /// Notifies the delegate that the peripheral manager is restoring its state
     /// (e.g., after re-launching or if a restore identifier was then used). This
@@ -160,14 +157,6 @@ extension PeripheralServiceManager: @preconcurrency CBPeripheralManagerDelegate 
     ) {
         logResult(of: "Advertisement start", error: error)
         delegate?.peripheralManager(self, didStartAdvertising: error)
-    }
-
-    @MainActor
-    public func peripheralManager(
-        _ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?
-    ) {
-        logResult(of: "Service \(service.uuid.uuidString) addition", error: error)
-        delegate?.peripheralManager(self, didAdd: service, error: error)
     }
 
     @MainActor
