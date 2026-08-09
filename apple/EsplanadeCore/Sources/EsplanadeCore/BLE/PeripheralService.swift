@@ -14,7 +14,7 @@ import Foundation
 /// peripheral. Implementations provide the configuration to create a
 /// `CBMutableService` and handle interactions with its characteristics.
 @MainActor
-public protocol PeripheralServiceProtocol: AnyObject {
+protocol PeripheralServiceProtocol: AnyObject {
     var uuid: CBUUID { get }
     var characteristics: [CBMutableCharacteristic] { get }
     var isPrimary: Bool { get }
@@ -58,7 +58,7 @@ extension PeripheralServiceProtocol {
 /// A base class providing a default implementation of the `PeripheralServiceProtocol`.
 /// Subsequent characteristics will conform to `PeripheralCharacteristic`, with all
 /// incoming read, write, and notification requests automatically routed to them.
-open class PeripheralService: PeripheralServiceProtocol {
+class PeripheralService: PeripheralServiceProtocol {
     public let uuid: CBUUID
     public let isPrimary: Bool
     public var characteristics: [CBMutableCharacteristic] = []

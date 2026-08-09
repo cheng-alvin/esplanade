@@ -12,7 +12,7 @@ import os
 // MARK: - PeripheralServiceManager
 
 @MainActor
-public final class PeripheralServiceManager: NSObject {
+final class PeripheralServiceManager: NSObject {
 
     private let logger = Logger(
         subsystem: "com.cheng-alvin.EsplanadeCore", category: "BLEPeripheral")
@@ -112,7 +112,7 @@ public final class PeripheralServiceManager: NSObject {
 /// allowing the conforming type to react to state changes, advertising status, and
 /// BLE service interactions.
 @MainActor
-public protocol PeripheralServiceManagerDelegate: AnyObject {
+protocol PeripheralServiceManagerDelegate: AnyObject {
     /// Invoked when the peripheral manager's state updates. added for conformance
     /// to CoreBluetooth's `CBPeripheralManagerDelegate` protocol.
     /// - Parameters:

@@ -15,7 +15,7 @@ import Foundation
 /// `CBMutableCharacteristic`, dynamically handle interactions with its values,
 /// and manage notification subscription states for connected centrals.
 @MainActor
-public protocol PeripheralCharacteristic: AnyObject {
+protocol PeripheralCharacteristic: AnyObject {
     var uuid: CBUUID { get }
     var properties: CBCharacteristicProperties { get }
     var permissions: CBAttributePermissions { get }
@@ -77,8 +77,8 @@ extension PeripheralCharacteristic {
 
 // MARK: - BasePeripheralCharacteristic
 
-/// A base class providing a default implementation of the `PeripheralCharacteristic` 
-open class BasePeripheralCharacteristic: PeripheralCharacteristic {
+/// A base class providing a default implementation of the `PeripheralCharacteristic`
+class BasePeripheralCharacteristic: PeripheralCharacteristic {
     public let uuid: CBUUID
     public let properties: CBCharacteristicProperties
     public let permissions: CBAttributePermissions
