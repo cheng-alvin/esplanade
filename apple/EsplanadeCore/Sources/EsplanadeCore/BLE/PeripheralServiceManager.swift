@@ -108,12 +108,16 @@ public final class PeripheralServiceManager: NSObject {
 
 // MARK: - PeripheralServiceManagerDelegate Protocol
 
-/// A delegate protocol that receives updates and events from the `PeripheralServiceManager`,
-/// allowing the conforming type to react to state changes, advertising status, and BLE
-/// service interactions.
-
+/// A delegate protocol that receives events and updates from `PeripheralServiceManager`,
+/// allowing the conforming type to react to state changes, advertising status, and
+/// BLE service interactions.
 @MainActor
 public protocol PeripheralServiceManagerDelegate: AnyObject {
+    /// Invoked when the peripheral manager's state updates. added for conformance 
+    /// to CoreBluetooth's `CBPeripheralManagerDelegate` protocol.
+    /// - Parameters:
+    ///   - manager: The `PeripheralServiceManager` instance.
+    ///   - state: The current state of the `CBPeripheralManager`.
     func peripheralManager(
         _ manager: PeripheralServiceManager, didUpdateState state: CBManagerState)
 
@@ -122,12 +126,17 @@ public protocol PeripheralServiceManagerDelegate: AnyObject {
     func peripheralManager(
         _ manager: PeripheralServiceManager, didAdd service: CBService, error: Error?)
 
-    /// Called when the peripheral manager is restoring its state (e.g., after re-launching
-    /// or if a restore identifier was used). This method allows us to rebuild the service
-    /// list using the dictionary provided by the system.
+    /// Notifies the delegate that the peripheral manager is restoring its state
+    /// (e.g., after re-launching or if a restore identifier was then used). This
+    /// allows the delegate to rebuild its service list using provided data.
+    /// - Parameters:
+    ///   - manager: The `PeripheralServiceManager` instance.
+    ///   - state: A dictionary containing the restored state.
     func peripheralManager(
-        _ manager: PeripheralServiceManager, willRestoreState dict: [String: Any])
+        _ manager: PeripheralServiceManager, willRestoreState state: [String: Any])
 
+    /// Called when the manager is ready to send updates to subscribed central devices.
+    /// - Parameter manager: The `PeripheralServiceManager` instance.
     func peripheralManagerIsReady(toUpdateSubscribers manager: PeripheralServiceManager)
 }
 
@@ -138,6 +147,7 @@ extension PeripheralServiceManagerDelegate {
 // MARK: - CBPeripheralManagerDelegate Conformance
 
 extension PeripheralServiceManager: @preconcurrency CBPeripheralManagerDelegate {
+    /// Required by `CBPeripheralManagerDelegate` to monitor state changes.
     @MainActor
     public func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         logger.info("Peripheral state updated: \(String(describing: peripheral.state))")
