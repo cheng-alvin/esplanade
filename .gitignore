@@ -64,3 +64,8 @@ fastlane/test_output
 # Custom amendments to ignore file:
 
 build/ 
+
+# Ignore local environment state and API cost tracking inside Graphify
+graphify-out/cost.json
+graphify-out/manifest.json
+graphify-out/.graphify_python
