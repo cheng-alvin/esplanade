@@ -1,0 +1,21 @@
+# Esplanade Server – Example Configuration
+#
+# Copy this file to config.yaml and adjust values for your environment.
+# Environment variables (prefixed ESPLANADE_) override these settings.
+
+# Runtime environment: "development", "staging", or "production".
+env: development
+
+# Network binding.
+host: "0.0.0.0"
+port: 8080
+
+# Minimum log level: "debug", "info", "warn", "error".
+log_level: debug
+
+# Maximum time for in-flight requests to complete during shutdown.
+shutdown_timeout: 15s
+
+# Allowed CORS origins.  Use ["*"] only for local development.
+cors_origins:
+  - "http://localhost:3000"

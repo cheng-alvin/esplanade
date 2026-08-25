@@ -69,3 +69,8 @@ build/
 graphify-out/cost.json
 graphify-out/manifest.json
 graphify-out/.graphify_python
+
+# Go server
+server/bin/
+server/config.yaml
+server/vendor/
