@@ -1,0 +1,194 @@
+{
+  "apple/EsplanadeCore/Package.swift": {
+    "mtime": 1784771975.325244,
+    "seen": 1789388155.210897,
+    "ast_hash": "3db7d197c9002c31fa4b4b7e6876bccf",
+    "semantic_hash": "3db7d197c9002c31fa4b4b7e6876bccf"
+  },
+  "apple/EsplanadeCore/Sources/EsplanadeCore/BLE/PeripheralCharacteristic.swift": {
+    "mtime": 1786265663.8970633,
+    "seen": 1789388155.210908,
+    "ast_hash": "644f2ad682dba396de4b5338414e8b2e",
+    "semantic_hash": "644f2ad682dba396de4b5338414e8b2e"
+  },
+  "apple/EsplanadeCore/Sources/EsplanadeCore/BLE/PeripheralService.swift": {
+    "mtime": 1786265764.1091878,
+    "seen": 1789388155.2109141,
+    "ast_hash": "b76b1bfdcec9d96bd416b5d69425530a",
+    "semantic_hash": "b76b1bfdcec9d96bd416b5d69425530a"
+  },
+  "apple/EsplanadeCore/Sources/EsplanadeCore/BLE/PeripheralServiceManager.swift": {
+    "mtime": 1786265778.8118238,
+    "seen": 1789388155.210918,
+    "ast_hash": "45944e432fa10899911a6879e174d12b",
+    "semantic_hash": "45944e432fa10899911a6879e174d12b"
+  },
+  "apple/EsplanadeIcon.icon/icon.json": {
+    "mtime": 1784978821.0,
+    "seen": 1789388155.2109199,
+    "ast_hash": "c4785ac12f31134229934d4d4ea22f39",
+    "semantic_hash": "c4785ac12f31134229934d4d4ea22f39"
+  },
+  "apple/EsplanadeMacOS/Assets.xcassets/AccentColor.colorset/Contents.json": {
+    "mtime": 1783161913.7238643,
+    "seen": 1789388155.210923,
+    "ast_hash": "55019f7265dde0a78318b0807f98e847",
+    "semantic_hash": "55019f7265dde0a78318b0807f98e847"
+  },
+  "apple/EsplanadeMacOS/Assets.xcassets/AppIcon.appiconset/Contents.json": {
+    "mtime": 1783161913.7240663,
+    "seen": 1789388155.210927,
+    "ast_hash": "312293803cc066cebe794885fe1ddcfe",
+    "semantic_hash": "312293803cc066cebe794885fe1ddcfe"
+  },
+  "apple/EsplanadeMacOS/Assets.xcassets/Contents.json": {
+    "mtime": 1783161913.7241898,
+    "seen": 1789388155.2109299,
+    "ast_hash": "9deb2ada1cc834bbebf8bbad9c8978a1",
+    "semantic_hash": "9deb2ada1cc834bbebf8bbad9c8978a1"
+  },
+  "apple/EsplanadeMacOS/ContentView.swift": {
+    "mtime": 1783567694.3044426,
+    "seen": 1789388155.210933,
+    "ast_hash": "6d529fc5bb843ac97673375c3110d1cc",
+    "semantic_hash": "6d529fc5bb843ac97673375c3110d1cc"
+  },
+  "apple/EsplanadeMacOS/EsplanadeMacOSApp.swift": {
+    "mtime": 1783161913.72468,
+    "seen": 1789388155.210935,
+    "ast_hash": "74ad79796387f190d4767d2539c35701",
+    "semantic_hash": "74ad79796387f190d4767d2539c35701"
+  },
+  "apple/EsplanadeiOS/Assets.xcassets/AccentColor.colorset/Contents.json": {
+    "mtime": 1783161913.7249424,
+    "seen": 1789388155.2109382,
+    "ast_hash": "55019f7265dde0a78318b0807f98e847",
+    "semantic_hash": "55019f7265dde0a78318b0807f98e847"
+  },
+  "apple/EsplanadeiOS/Assets.xcassets/AppIcon.appiconset/Contents.json": {
+    "mtime": 1783161913.7251265,
+    "seen": 1789388155.21094,
+    "ast_hash": "cbe75704b2680422c4156009a528e292",
+    "semantic_hash": "cbe75704b2680422c4156009a528e292"
+  },
+  "apple/EsplanadeiOS/Assets.xcassets/Contents.json": {
+    "mtime": 1783161913.7252312,
+    "seen": 1789388155.210943,
+    "ast_hash": "9deb2ada1cc834bbebf8bbad9c8978a1",
+    "semantic_hash": "9deb2ada1cc834bbebf8bbad9c8978a1"
+  },
+  "apple/EsplanadeiOS/ContentView.swift": {
+    "mtime": 1783161913.7254853,
+    "seen": 1789388155.210946,
+    "ast_hash": "151849f9c7216e2b9d188a217df6243e",
+    "semantic_hash": "151849f9c7216e2b9d188a217df6243e"
+  },
+  "apple/EsplanadeiOS/EsplanadeiOSApp.swift": {
+    "mtime": 1783161913.7257652,
+    "seen": 1789388155.210948,
+    "ast_hash": "4eec35e9008cb1b13f8bfc40568532c1",
+    "semantic_hash": "4eec35e9008cb1b13f8bfc40568532c1"
+  },
+  "apple/buildServer.json": {
+    "mtime": 1783474956.0772383,
+    "seen": 1789388155.2109509,
+    "ast_hash": "633bb7e37587a51ae7089957e4ed5e7b",
+    "semantic_hash": "633bb7e37587a51ae7089957e4ed5e7b"
+  },
+  "server/go.mod": {
+    "mtime": 1787473936.0048149,
+    "seen": 1789388155.210966,
+    "ast_hash": "979925c0e6a9b7d2adac575592b18f29",
+    "semantic_hash": "979925c0e6a9b7d2adac575592b18f29"
+  },
+  "Rickett - Logo.png": {
+    "mtime": 1784977637.463932,
+    "seen": 1787354936.821409,
+    "ast_hash": "0f8891ca31f7f457f5b80d0d584de5a5",
+    "semantic_hash": ""
+  },
+  "Rickett.png": {
+    "mtime": 1784977679.2201796,
+    "seen": 1787354936.82141,
+    "ast_hash": "2d2a1a8c428c8125ddecf5cc247a7193",
+    "semantic_hash": ""
+  },
+  "apple/EsplanadeIcon.icon/Assets/Rickett.png": {
+    "mtime": 1784978821.326038,
+    "seen": 1787354936.82141,
+    "ast_hash": "2d2a1a8c428c8125ddecf5cc247a7193",
+    "semantic_hash": ""
+  },
+  "server/config/config.go": {
+    "mtime": 1789387314.0418656,
+    "seen": 1789388155.210954,
+    "ast_hash": "a76f71f86b7a1126f2605122525d8daa",
+    "semantic_hash": "a76f71f86b7a1126f2605122525d8daa"
+  },
+  "server/config/load.go": {
+    "mtime": 1789387322.048332,
+    "seen": 1789388155.210957,
+    "ast_hash": "ece529f64fd7c47981f2834dfa0cb9a8",
+    "semantic_hash": "ece529f64fd7c47981f2834dfa0cb9a8"
+  },
+  "server/ctxkey/ctxkey.go": {
+    "mtime": 1787473256.7493374,
+    "seen": 1789388155.21096,
+    "ast_hash": "a09bd08acd1dd6a28dc5f8475e19c5b8",
+    "semantic_hash": "a09bd08acd1dd6a28dc5f8475e19c5b8"
+  },
+  "server/db/mongo/errors.go": {
+    "mtime": 1789387256.397943,
+    "seen": 1789388155.2109618,
+    "ast_hash": "c476deb08ee6bec0a7441ad2b89c0f1d",
+    "semantic_hash": "c476deb08ee6bec0a7441ad2b89c0f1d"
+  },
+  "server/db/mongo/mongo.go": {
+    "mtime": 1789387249.9464633,
+    "seen": 1789388155.210964,
+    "ast_hash": "0ca82b759a1f6a3c15a16745c3108af5",
+    "semantic_hash": "0ca82b759a1f6a3c15a16745c3108af5"
+  },
+  "server/logging/logging.go": {
+    "mtime": 1787658301.7698896,
+    "seen": 1789388155.210968,
+    "ast_hash": "f26c804f1f8ae74bcfc5c29516031864",
+    "semantic_hash": "f26c804f1f8ae74bcfc5c29516031864"
+  },
+  "server/main.go": {
+    "mtime": 1789387347.9584355,
+    "seen": 1789388155.2109702,
+    "ast_hash": "e8c80e6f265574e24b6f8f5376c2042c",
+    "semantic_hash": "e8c80e6f265574e24b6f8f5376c2042c"
+  },
+  "server/middleware/middleware.go": {
+    "mtime": 1788607694.2344837,
+    "seen": 1789388155.210973,
+    "ast_hash": "d2fb7eeb08045f7a81e9d7dae20ee037",
+    "semantic_hash": "d2fb7eeb08045f7a81e9d7dae20ee037"
+  },
+  "server/repository/index.go": {
+    "mtime": 1789387296.6626008,
+    "seen": 1789388155.210975,
+    "ast_hash": "3e79a59c56f653082fb3d38c414c7d81",
+    "semantic_hash": "3e79a59c56f653082fb3d38c414c7d81"
+  },
+  "server/repository/repository.go": {
+    "mtime": 1789387290.329439,
+    "seen": 1789388155.210977,
+    "ast_hash": "e8c090763a32475e9182adc35407b271",
+    "semantic_hash": "e8c090763a32475e9182adc35407b271"
+  },
+  "server/respond/respond.go": {
+    "mtime": 1787658561.1196237,
+    "seen": 1789388155.210979,
+    "ast_hash": "c71b809c90f4f06e2fcc1d183a80f394",
+    "semantic_hash": "c71b809c90f4f06e2fcc1d183a80f394"
+  },
+  "server/router/router.go": {
+    "mtime": 1789387337.7582898,
+    "seen": 1789388155.2109811,
+    "ast_hash": "f878a99733b8429c48a4de5d3ff91215",
+    "semantic_hash": "f878a99733b8429c48a4de5d3ff91215"
+  }
+}

@@ -1,0 +1,381 @@
+{
+  "communities": {
+    "0": [
+      "any",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_cbmanagerstate",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_cbmanagerstate_description",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_bluetoothstate",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_cleanup",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_handlesubscriptionchange",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_init",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_isadvertising",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_logresult",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_peripheralmanager",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_peripheralmanagerdidstartadvertising",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_peripheralmanagerdidupdatestate",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_peripheralmanagerisready",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_remove",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_serviceimplementation",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_startadvertising",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_stopadvertising",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_subscriptionchange",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_subscriptionchange_logmessage",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_subscriptionchange_subscribing",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_subscriptionchange_unsubscribing",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_swift_bool",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_swift_cbattrequest",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_swift_cbcentral",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_swift_cbcharacteristic",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_swift_cbmutableservice",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_swift_cbperipheralmanager",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_swift_cbuuid",
+      "cbperipheralmanagerdelegate",
+      "customstringconvertible",
+      "error",
+      "nsobject",
+      "string"
+    ],
+    "1": [
+      "go_type_go_mongodb_org_mongo_driver_v2_mongo_client",
+      "go_type_go_mongodb_org_mongo_driver_v2_mongo_database",
+      "go_type_go_uber_org_zap_logger",
+      "go_type_net_http_handler",
+      "go_type_net_http_handlerfunc",
+      "go_type_net_http_servemux",
+      "middleware_middleware",
+      "middleware_statuswriter",
+      "middleware_statuswriter_write",
+      "middleware_statuswriter_writeheader",
+      "repository_indexprovider",
+      "server_db_mongo_mongo",
+      "server_db_mongo_mongo_collection",
+      "server_db_mongo_mongo_database",
+      "server_db_mongo_mongo_disconnect",
+      "server_db_mongo_mongo_hastls",
+      "server_db_mongo_mongo_new",
+      "server_db_mongo_mongo_ping",
+      "server_logging_logging",
+      "server_logging_logging_new",
+      "server_main",
+      "server_main_main",
+      "server_middleware_middleware",
+      "server_middleware_middleware_chain",
+      "server_middleware_middleware_cors",
+      "server_middleware_middleware_logging",
+      "server_middleware_middleware_recovery",
+      "server_middleware_middleware_requestid",
+      "server_repository_index",
+      "server_repository_index_ensureindexes",
+      "server_router_router",
+      "server_router_router_new",
+      "server_router_router_readyz"
+    ],
+    "2": [
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_baseperipheralcharacteristic",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_baseperipheralcharacteristic_buildmutablecharacteristic",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_baseperipheralcharacteristic_didsubscribe",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_baseperipheralcharacteristic_didunsubscribe",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_baseperipheralcharacteristic_handlereadrequest",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_baseperipheralcharacteristic_handlewriterequests",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_baseperipheralcharacteristic_init",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_baseperipheralcharacteristic_updateandnotify",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_peripheralcharacteristic",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_peripheralcharacteristic_buildmutablecharacteristic",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_peripheralcharacteristic_didsubscribe",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_peripheralcharacteristic_didunsubscribe",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_peripheralcharacteristic_handlereadrequest",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_peripheralcharacteristic_handlewriterequests",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_peripheralcharacteristic_updateandnotify",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_swift_bool",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_swift_cbatterror",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_swift_cbattrequest",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_swift_cbcentral",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_swift_cbmutablecharacteristic",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_swift_cbperipheralmanager",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_swift_cbuuid",
+      "cbattributepermissions",
+      "cbcharacteristicproperties",
+      "data"
+    ],
+    "3": [
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralservice",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralservice_didsubscribe",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralservice_didunsubscribe",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralservice_handlereadrequest",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralservice_handlewriterequests",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralservice_init",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralservice_peripheralcharacteristics",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralservice_servicecharacteristic",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralserviceprotocol",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralserviceprotocol_buildmutableservice",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralserviceprotocol_didsubscribe",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralserviceprotocol_didunsubscribe",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralserviceprotocol_handlereadrequest",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralserviceprotocol_handlewriterequests",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_swift_bool",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_swift_cbatterror",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_swift_cbattrequest",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_swift_cbcentral",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_swift_cbcharacteristic",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_swift_cbmutablecharacteristic",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_swift_cbmutableservice",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_swift_cbuuid",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager_add"
+    ],
+    "4": [
+      "go_type_context_cancelfunc",
+      "go_type_context_context",
+      "go_type_go_mongodb_org_mongo_driver_v2_bson_m",
+      "pt",
+      "repository_findresult",
+      "repository_repository_t_pt",
+      "repository_repository_t_pt_count",
+      "repository_repository_t_pt_deleteone",
+      "repository_repository_t_pt_exists",
+      "repository_repository_t_pt_find",
+      "repository_repository_t_pt_findbyid",
+      "repository_repository_t_pt_harddelete",
+      "repository_repository_t_pt_insertone",
+      "repository_repository_t_pt_updateone",
+      "repository_repository_t_pt_withtimeout",
+      "server_db_mongo_errors",
+      "server_db_mongo_errors_translateerror",
+      "server_repository_repository_scoped"
+    ],
+    "5": [
+      "app",
+      "apple_esplanadeios_contentview",
+      "apple_esplanadeios_contentview_contentview",
+      "apple_esplanadeios_contentview_contentview_body",
+      "apple_esplanadeios_esplanadeiosapp",
+      "apple_esplanadeios_esplanadeiosapp_esplanadeiosapp",
+      "apple_esplanadeios_esplanadeiosapp_esplanadeiosapp_body",
+      "apple_esplanadeios_esplanadeiosapp_swift_scene",
+      "apple_esplanademacos_contentview",
+      "apple_esplanademacos_contentview_contentview",
+      "apple_esplanademacos_contentview_contentview_body",
+      "apple_esplanademacos_esplanademacosapp",
+      "apple_esplanademacos_esplanademacosapp_esplanademacosapp",
+      "apple_esplanademacos_esplanademacosapp_esplanademacosapp_body",
+      "apple_esplanademacos_esplanademacosapp_swift_scene",
+      "swiftui",
+      "view"
+    ],
+    "6": [
+      "config_config_addr",
+      "go_type_go_mongodb_org_mongo_driver_v2_mongo_collection",
+      "go_type_time_duration",
+      "repository_document",
+      "repository_repository",
+      "server_config_config",
+      "server_config_config_defaults",
+      "server_config_config_go_config_config",
+      "server_config_load",
+      "server_config_load_load",
+      "server_repository_repository",
+      "server_repository_repository_new",
+      "t"
+    ],
+    "7": [
+      "anyobject",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanagerdelegate",
+      "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanagerdelegate_peripheralmanagerisready",
+      "corebluetooth",
+      "foundation",
+      "os"
+    ],
+    "8": [
+      "go_type_go_mongodb_org_mongo_driver_v2_bson_objectid",
+      "go_type_time_time",
+      "repository_base",
+      "repository_base_getid",
+      "repository_base_setcreatedat",
+      "repository_base_setid",
+      "repository_base_setupdatedat"
+    ],
+    "9": [
+      "go_type_net_http_request",
+      "go_type_net_http_responsewriter",
+      "server_respond_respond",
+      "server_respond_respond_error",
+      "server_respond_respond_json",
+      "server_router_router_healthz"
+    ],
+    "10": [
+      "apple_esplanadecore_package",
+      "packagedescription"
+    ],
+    "11": [
+      "ctxkey_key",
+      "server_ctxkey_ctxkey"
+    ],
+    "12": [
+      "pkg_github_com_cheng_alvin_esplanade_server"
+    ]
+  },
+  "cohesion": {
+    "0": 0.10338680926916222,
+    "1": 0.10606060606060606,
+    "2": 0.14666666666666667,
+    "3": 0.16600790513833993,
+    "4": 0.35294117647058826,
+    "5": 0.14705882352941177,
+    "6": 0.21794871794871795,
+    "7": 0.2777777777777778,
+    "8": 0.47619047619047616,
+    "9": 0.4,
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0
+  },
+  "gods": [
+    {
+      "id": "apple_esplanadecore_sources_esplanadecore_ble_peripheralservicemanager_peripheralservicemanager",
+      "label": "PeripheralServiceManager",
+      "degree": 27
+    },
+    {
+      "id": "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_baseperipheralcharacteristic",
+      "label": "BasePeripheralCharacteristic",
+      "degree": 15
+    },
+    {
+      "id": "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralservice",
+      "label": "PeripheralService",
+      "degree": 13
+    },
+    {
+      "id": "apple_esplanadecore_sources_esplanadecore_ble_peripheralcharacteristic_peripheralcharacteristic",
+      "label": "PeripheralCharacteristic",
+      "degree": 12
+    },
+    {
+      "id": "server_main_main",
+      "label": "main()",
+      "degree": 12
+    },
+    {
+      "id": "apple_esplanadecore_sources_esplanadecore_ble_peripheralservice_peripheralserviceprotocol",
+      "label": "PeripheralServiceProtocol",
+      "degree": 11
+    },
+    {
+      "id": "server_db_mongo_errors_translateerror",
+      "label": "TranslateError()",
+      "degree": 9
+    },
+    {
+      "id": "repository_repository_t_pt",
+      "label": "Repository[T, PT]",
+      "degree": 9
+    },
+    {
+      "id": "server_db_mongo_mongo_new",
+      "label": "New()",
+      "degree": 8
+    },
+    {
+      "id": "server_repository_repository_scoped",
+      "label": "scoped()",
+      "degree": 8
+    }
+  ],
+  "surprises": [
+    {
+      "source": "PeripheralService",
+      "target": "PeripheralCharacteristic",
+      "source_files": [
+        "apple/EsplanadeCore/Sources/EsplanadeCore/BLE/PeripheralService.swift",
+        "apple/EsplanadeCore/Sources/EsplanadeCore/BLE/PeripheralCharacteristic.swift"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "PeripheralServiceManager",
+      "target": "PeripheralServiceProtocol",
+      "source_files": [
+        "apple/EsplanadeCore/Sources/EsplanadeCore/BLE/PeripheralServiceManager.swift",
+        "apple/EsplanadeCore/Sources/EsplanadeCore/BLE/PeripheralService.swift"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": ".body",
+      "target": "ContentView",
+      "source_files": [
+        "apple/EsplanadeMacOS/EsplanadeMacOSApp.swift",
+        "apple/EsplanadeMacOS/ContentView.swift"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": ".body",
+      "target": "ContentView",
+      "source_files": [
+        "apple/EsplanadeiOS/EsplanadeiOSApp.swift",
+        "apple/EsplanadeiOS/ContentView.swift"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "New()",
+      "target": "Config",
+      "source_files": [
+        "server/db/mongo/mongo.go",
+        "server/config/config.go"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "bridges separate communities"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `PeripheralServiceManager` connect `PeripheralServiceManager` to `PeripheralService`, `PeripheralServiceManager.swift`?",
+      "why": "High betweenness centrality (0.113) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `PeripheralServiceProtocol` connect `PeripheralService` to `PeripheralServiceManager`, `PeripheralServiceManager.swift`?",
+      "why": "High betweenness centrality (0.089) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `PeripheralCharacteristic` connect `BasePeripheralCharacteristic` to `PeripheralService`, `PeripheralServiceManager.swift`?",
+      "why": "High betweenness centrality (0.080) - this node is a cross-community bridge."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `PackageDescription`, `.peripheralCharacteristics`, `os` to the rest of the system?",
+      "why": "14 weakly-connected nodes found - possible documentation gaps or missing edges."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `PeripheralServiceManager` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.10338680926916222 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `main` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.10606060606060606 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `BasePeripheralCharacteristic` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.14666666666666667 - nodes in this community are weakly interconnected."
+    }
+  ]
+}

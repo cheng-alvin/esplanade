@@ -1,0 +1,13 @@
+{
+  "0": "PeripheralServiceManager",
+  "1": "BasePeripheralCharacteristic",
+  "2": "PeripheralService",
+  "3": "ContentView",
+  "4": "net/http.ResponseWriter",
+  "5": "buildRouter",
+  "6": "PeripheralServiceManager.swift",
+  "7": "Config",
+  "8": "Package.swift",
+  "9": "smoke_test.sh",
+  "10": "esplanade"
+}
