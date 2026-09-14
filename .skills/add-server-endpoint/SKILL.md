@@ -30,7 +30,7 @@ Identify from the user's request:
 Create a new file at:
 
 ```
-server/internal/handler/<resource>/<resource>.go
+server/handler/<resource>/<resource>.go
 ```
 
 Each handler function must have the signature:
