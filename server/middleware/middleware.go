@@ -24,7 +24,7 @@ type Middleware func(http.Handler) http.Handler
 //
 // handler := middleware.Chain(mux, mw1, mw2, mw3)
 func Chain(h http.Handler, mws ...Middleware) http.Handler {
-	// Apply in reverse so the first middleware listed is outermost.
+	// TODO - Migrate to newest `slices.Backward`
 	for i := len(mws) - 1; i >= 0; i-- {
 		h = mws[i](h)
 	}
