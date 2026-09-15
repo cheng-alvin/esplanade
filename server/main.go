@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/cheng-alvin/esplanade/server/config"
+	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
 	"github.com/cheng-alvin/esplanade/server/logging"
 	"github.com/cheng-alvin/esplanade/server/middleware"
+	"github.com/cheng-alvin/esplanade/server/repository"
 	"github.com/cheng-alvin/esplanade/server/router"
 	"go.uber.org/zap"
 )
@@ -31,7 +33,27 @@ func main() {
 		zap.String("addr", cfg.Addr()),
 	)
 
-	mux := router.New()
+	connectCtx, connectCancel := context.WithTimeout(
+		context.Background(),
+		cfg.MongoConnectTimeout+cfg.MongoServerSelectionTimeout,
+	)
+	mongoClient, err := esmongo.New(connectCtx, cfg)
+	connectCancel()
+	if err != nil {
+		logger.Fatal("connecting to mongo", zap.Error(err))
+	}
+	logger.Info("connected to mongo", zap.String("database", cfg.MongoDatabase))
+
+	mongoDB := esmongo.Database(mongoClient, cfg.MongoDatabase)
+
+	indexCtx, indexCancel := context.WithTimeout(context.Background(), repository.DefaultOperationTimeout)
+	err = repository.EnsureIndexes(indexCtx, mongoDB)
+	indexCancel()
+	if err != nil {
+		logger.Fatal("ensuring mongo indexes", zap.Error(err))
+	}
+
+	mux := router.New(mongoClient)
 	handler := middleware.Chain(
 		mux,
 		middleware.RequestID,
@@ -75,6 +97,10 @@ func main() {
 	logger.Info("shutting down server", zap.Duration("timeout", cfg.ShutdownTimeout))
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Fatal("server forced to shutdown", zap.Error(err))
+	}
+
+	if err := esmongo.Disconnect(ctx, mongoClient); err != nil {
+		logger.Error("disconnecting mongo client", zap.Error(err))
 	}
 
 	logger.Info("server stopped")
