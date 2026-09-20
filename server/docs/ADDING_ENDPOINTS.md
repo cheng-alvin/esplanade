@@ -140,10 +140,12 @@ server/
 ├── cmd/server/main.go           ← entrypoint (you won't usually edit this)
 ├── config/                      ← configuration loading
 ├── ctxkey/                      ← context key types
+├── db/mongo/                    ← Mongo connection lifecycle (see docs/MONGODB.md)
 ├── handler/                     ← ★ your endpoint handlers go here
 │   └── widgets/widgets.go       ← example
 ├── logging/                     ← structured logger setup
 ├── middleware/                  ← request pipeline (auto-applied)
+├── repository/                  ← generic Mongo CRUD primitive (see docs/MONGODB.md)
 ├── respond/                     ← JSON response helpers
 └── router/router.go             ← ★ route registration
 ├── docs/                        ← documentation (you are here)
