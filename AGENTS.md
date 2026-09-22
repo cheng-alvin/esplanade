@@ -17,13 +17,21 @@ The project has two main components:
 
 ## Agent Skills
 
-Before starting a task, check `.skills/` for a relevant skill. Each skill lives in its own
-subdirectory with a `SKILL.md` describing when and how to use it (e.g. adding a server
-endpoint, MongoDB data access patterns). Skills encode the project's established
-conventions — treat them as the first source of truth for how to do something, ahead of
+Before starting a task, check `.skills/` for a relevant skill. Each skill lives in its
+own subdirectory with a `SKILL.md` describing when and how to use it (e.g. adding a
+server endpoint, MongoDB data access patterns). Skills encode the project's established
+conventions — treat them as the first source of truth for how to do something,
+ahead of
 inferring a pattern from surrounding code. When a skill's conventions and the current
 codebase disagree, verify against the codebase and update the skill rather than
 propagating stale guidance.
+
+## Editor Tooling
+
+Prefer the built-in editor tools for reading, searching, editing, and diagnosing the
+project rather than relying on Python scripts or ad hoc shell commands. Use a command
+only when the built-in tools are unavailable or insufficient, and only when there is a
+justifiable reason to do so.
 
 ## Security Outlook
 
@@ -34,8 +42,8 @@ Esplanade treats security as a foundational constraint, not an add-on:
   alternative.
 - **End-to-end encryption** — data in transit between devices is encrypted by design,
   not opt-in.
-- **No ecosystem lock-in** — this is a security and trust property as much as a product
-  one; Esplanade should never require a proprietary cloud account or gate core
+- **No ecosystem lock-in** — this is a security and trust property as much as a
+  product one; Esplanade should never require a proprietary cloud account or gate core
   functionality behind a vendor's ecosystem.
 
 Agents should default to the more conservative security posture when a design choice
@@ -63,8 +71,8 @@ local-first or E2E guarantees.
 - iOS design philosophy: deliberate minimalism. No filler UI (quick actions, stat cards,
   tips banners); favor native iOS interaction patterns; embrace empty space rather than
   filling it.
-- Carry the "What → Where" interaction model (select content, then select a destination
-  device) into other screens where it fits, rather than reinventing the flow
+- Carry the "What → Where" interaction model (select content, then select a
+  destination device) into other screens where it fits, rather than reinventing the flow
   per-feature.
 
 ## Coding Style: Comments
@@ -78,8 +86,8 @@ narration of what the code does.
   case is handled a particular way, why a seemingly-simpler approach was rejected,
   concurrency/ordering requirements that aren't visible from the source code itself.
 - If a comment would only explain *what* is happening rather than *why*, it belongs in
-  the chat response to the user, a docs markdown file, or a relevant skill — not in the
-  source file.
+  the chat response to the user, a docs markdown file, or a relevant skill — not in
+  the source file.
 - When editing existing code, remove drive-by explanatory comments that no longer earn
   their place; don't leave stale commentary behind.
 - Prefer making code self-explanatory (clear naming, small functions) over compensating
@@ -87,9 +95,8 @@ narration of what the code does.
 
 ## Branching & PR Policy for Agent Output
 
-All code produced by an AI agent must land on a branch prefixed `vibes/...` (e.g.
-`vibes/add-widgets-endpoint`) — this marks the branch as agent-generated and not yet
-human-reviewed.
+Agent-generated code must be developed on a dedicated task-grouped branch. The
+`vibes/` prefix is optional; it is not required for agent-generated work.
 
 - Break work into small, focused branches and pull requests. Each pull request should
   represent a discrete, reviewable change; do not bundle unrelated concerns into one
@@ -99,10 +106,24 @@ human-reviewed.
   branch immediately below it. Keep each layer independently reviewable, with lower
   branches containing foundational changes and higher branches containing changes that
   depend on them. Stacked pull requests must be merged from the bottom up.
-- Any pull request opened from a `vibes/...` branch must be tagged with the `vibes`
-  label on GitHub.
-- Agents should never push agent-generated commits directly to `main` or to a
-  human-owned feature branch.
-- Once a human has reviewed and accepted the changes, it's on the human reviewer to
-  decide whether to rename/merge out of the `vibes/` namespace — agents should not do
-  this themselves.
+
+Use a descriptive task name as the branch group and use slash-separated names
+for related branches. Reserve the `main` subbranch as the base branch for each
+task group. For example:
+
+- `mongo-implementation/main` is the base branch for the task group.
+- `mongo-implementation/config-error-handling` is a focused branch based on that
+  task group.
+- `mongo-implementation/indexes` is another focused branch in the same group.
+
+This convention is supported by standard Git branch references. However, Git treats `/`
+as a hierarchy separator: a branch named `mongo-implementation` cannot coexist with
+branches named `mongo-implementation/...`. Reserve the task name as a namespace and use
+`mongo-implementation/main` as its base branch instead. Feature branches should be based
+on the reserved `main` subbranch and should not replace it.
+
+Agents must not push agent-generated commits directly to `main` or to a human-owned
+feature branch. Keep agent work on the task-grouped branch until a human reviews it.
+
+After human review, the human reviewer decides whether to rename, merge, or otherwise
+reorganize the branch.
