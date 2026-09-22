@@ -64,9 +64,6 @@ func Ping(ctx context.Context, client *mongo.Client) error {
 	return client.Ping(ctx, readpref.Primary())
 }
 
-// Disconnect closes the client's connections and releases its
-// resources. It should be called exactly once, from main.go's shutdown
-// sequence, alongside srv.Shutdown.
 func Disconnect(ctx context.Context, client *mongo.Client) error {
 	if client == nil {
 		return nil
@@ -74,12 +71,10 @@ func Disconnect(ctx context.Context, client *mongo.Client) error {
 	return client.Disconnect(ctx)
 }
 
-// Database returns a handle to the named database on client.
 func Database(client *mongo.Client, name string) *mongo.Database {
 	return client.Database(name)
 }
 
-// Collection returns a handle to the named collection within db.
 func Collection(db *mongo.Database, name string) *mongo.Collection {
 	return db.Collection(name)
 }
