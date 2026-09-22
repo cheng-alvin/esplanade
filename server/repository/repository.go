@@ -1,15 +1,3 @@
-// Package repository provides a generic MongoDB CRUD primitive that
-// resource packages (e.g. a future devices package) compose with their
-// own query-building logic.
-//
-// Repository is deliberately dumb: it holds no config, no logger, and no
-// business logic. It is a mechanical layer between "I have a Go struct"
-// and "there's a BSON document in a collection." Keeping it dumb is what
-// makes it reusable across every resource without special-casing.
-//
-// Resource-specific query shapes ("devices owned by user X that are
-// currently online") are NOT a Repository concern — that belongs in the
-// resource package, composed on top of Find's typed filter parameter.
 package repository
 
 import (
@@ -47,10 +35,6 @@ const (
 // layer performs by default.
 var deletedAtUnset = bson.M{"$exists": false}
 
-// Document is implemented by every type stored through a Repository. It
-// is satisfied by embedding Base, which is how the generic layer
-// populates audit fields (ID, timestamps, soft-delete marker) without
-// knowing anything about a resource's own fields.
 type Document interface {
 	SetID(bson.ObjectID)
 	GetID() bson.ObjectID
@@ -58,10 +42,6 @@ type Document interface {
 	SetUpdatedAt(time.Time)
 }
 
-// Base is embedded by every document type stored in Mongo. It supplies
-// the audit fields every resource needs (_id, created_at, updated_at,
-// deleted_at) and the Document interface implementation, so resource
-// packages never have to hand-roll them.
 type Base struct {
 	ID        bson.ObjectID `bson:"_id,omitempty"`
 	CreatedAt time.Time     `bson:"created_at"`
