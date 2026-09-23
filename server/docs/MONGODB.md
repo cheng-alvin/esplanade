@@ -86,8 +86,12 @@ pure liveness check with no downstream dependency.
    never a filter built from raw request input:
 
    ```go
-   func (r *Repo) OnlineForUser(ctx context.Context, userID string, afterID string) (repository.FindResult[*Device], error) {
-       return r.repo.Find(ctx, bson.M{"user_id": userID, "online": true}, afterID, 0)
+   func (r *Repo) OnlineForUser(ctx context.Context, userID string) ([]*Device, error) {
+       return r.repo.Find(ctx, bson.M{"user_id": userID, "online": true})
+   }
+
+   func (r *Repo) OnlineForUserPage(ctx context.Context, userID string, afterID string, pageSize int) (repository.FindResult[*Device], error) {
+       return r.repo.FindPage(ctx, bson.M{"user_id": userID, "online": true}, afterID, pageSize)
    }
    ```
 
@@ -105,9 +109,9 @@ pure liveness check with no downstream dependency.
    }
    ```
 
-5. **Expose a narrow interface to handlers** (e.g. just `FindByID` and
-   `Find`), not the concrete `*Repository[...]` type, so handler tests
-   can mock exactly what they use.
+5. **Expose a narrow interface to handlers** (e.g. just `FindByID`,
+   `Find`, or `FindPage`), not the concrete `*Repository[...]` type, so
+   handler tests can mock exactly what they use.
 
 ---
 
@@ -118,9 +122,11 @@ pure liveness check with no downstream dependency.
 - **Soft deletes by default** — `DeleteOne` sets `deleted_at`; every
   read excludes soft-deleted documents automatically. Use `HardDelete`
   only when a literal, unrecoverable removal is actually required.
-- **Cursor pagination** — `Find` pages on `_id`, never `skip`/`limit`,
-  and caps page size at `repository.MaxPageSize` regardless of what's
-  requested.
+- **Standard queries by default** — `Find` returns all non-deleted
+  documents matching the supplied filter without pagination.
+- **Explicit cursor pagination** — `FindPage` provides cursor-based
+  fetching on `_id` and caps page size at `repository.MaxPageSize` when
+  a caller deliberately requests paged results.
 - **Injection safety** — `Find`/`Count`/`Exists` take a `bson.M` your
   package builds from typed parameters; never pass through a raw,
   client-controlled map.
