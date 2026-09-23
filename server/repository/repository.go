@@ -13,14 +13,14 @@ import (
 )
 
 const (
-	// DefaultPageSize is used by Find when the caller requests a page
+	// DefaultPageSize is used by FindPage when the caller requests a page
 	// size of zero or less.
 	DefaultPageSize = 50
 
 	// MaxPageSize is the hard upper bound on documents returned by a
-	// single Find call, regardless of what the caller requests. This
-	// exists so a buggy or malicious client can never force a full
-	// collection scan into memory via an unbounded page size.
+	// single FindPage call, regardless of what the caller requests. This
+	// exists so a buggy or malicious client cannot force an unbounded
+	// paginated request.
 	MaxPageSize = 200
 
 	// DefaultOperationTimeout bounds an individual Mongo operation. An
@@ -137,8 +137,37 @@ func (r *Repository[T, PT]) FindByID(ctx context.Context, id string) (PT, error)
 	return PT(&doc), nil
 }
 
-// FindResult is the page returned by Find: the matched documents plus a
-// cursor for fetching the next page, if any.
+// Find returns all non-deleted documents matching filter.
+//
+// filter must be built by the resource-specific package from typed
+// parameters — Find never accepts a caller-supplied arbitrary filter
+// map, since that's the main NoSQL-injection vector in Go Mongo code.
+func (r *Repository[T, PT]) Find(ctx context.Context, filter bson.M) ([]PT, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	cursor, err := r.collection.Find(ctx, scoped(filter))
+	if err != nil {
+		return nil, esmongo.TranslateError(err)
+	}
+	defer cursor.Close(ctx)
+
+	items := make([]PT, 0)
+	for cursor.Next(ctx) {
+		var doc T
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("repository: decoding document: %w", err)
+		}
+		items = append(items, PT(&doc))
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, esmongo.TranslateError(err)
+	}
+	return items, nil
+}
+
+// FindResult is the page returned by FindPage: the matched documents plus
+// a cursor for fetching the next page, if any.
 type FindResult[PT any] struct {
 	Items []PT
 
@@ -147,18 +176,18 @@ type FindResult[PT any] struct {
 	NextCursor string
 }
 
-// Find returns a page of non-deleted documents matching filter, ordered
-// by _id ascending.
+// FindPage returns a page of non-deleted documents matching filter,
+// ordered by _id ascending.
 //
 // filter must be built by the resource-specific package from typed
-// parameters — Find never accepts a caller-supplied arbitrary filter
+// parameters — FindPage never accepts a caller-supplied arbitrary filter
 // map, since that's the main NoSQL-injection vector in Go Mongo code.
 //
 // Pagination is cursor-based (filter on _id > afterID) rather than
 // skip/limit, since skip/limit slows down as the offset grows and can
 // return inconsistent pages under concurrent inserts. pageSize is capped
 // at MaxPageSize regardless of what's requested.
-func (r *Repository[T, PT]) Find(ctx context.Context, filter bson.M, afterID string, pageSize int) (FindResult[PT], error) {
+func (r *Repository[T, PT]) FindPage(ctx context.Context, filter bson.M, afterID string, pageSize int) (FindResult[PT], error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
@@ -305,8 +334,7 @@ func (r *Repository[T, PT]) Count(ctx context.Context, filter bson.M) (int64, er
 
 // Exists reports whether at least one non-deleted document matches
 // filter. It is implemented as a projected FindOne rather than Find
-// plus a length check, which would be both slower and easy to get
-// subtly wrong under pagination.
+// plus a full result fetch, which would be unnecessarily expensive.
 func (r *Repository[T, PT]) Exists(ctx context.Context, filter bson.M) (bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
