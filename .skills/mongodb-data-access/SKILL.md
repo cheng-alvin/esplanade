@@ -115,8 +115,12 @@ the main NoSQL-injection boundary in this codebase, so it's worth
 treating as a hard rule rather than a style preference:
 
 ```go
-func (r *Repo) OnlineForUser(ctx context.Context, userID string, afterID string) (repository.FindResult[*Device], error) {
-    return r.repo.Find(ctx, bson.M{"user_id": userID, "online": true}, afterID, 0)
+func (r *Repo) OnlineForUser(ctx context.Context, userID string) ([]*Device, error) {
+    return r.repo.Find(ctx, bson.M{"user_id": userID, "online": true})
+}
+
+func (r *Repo) OnlineForUserPage(ctx context.Context, userID string, afterID string, pageSize int) (repository.FindResult[*Device], error) {
+    return r.repo.FindPage(ctx, bson.M{"user_id": userID, "online": true}, afterID, pageSize)
 }
 ```
 
@@ -147,7 +151,7 @@ drifting apart.
 ### 5. Expose a narrow interface to the handler, not the concrete repository
 
 A handler should depend on an interface with just the methods it
-actually calls (e.g. `FindByID` and `Find`), not the full
+actually calls (e.g. `FindByID`, `Find`, or `FindPage`), not the full
 `*Repository[Device, *Device]` type — that's what lets handler tests
 mock exactly what they use, rather than standing up a real Mongo
 instance for every test.
@@ -188,15 +192,17 @@ a connection open for the full request lifetime.
 |---|---|---|
 | `InsertOne(ctx, doc)` | Insert a new document | Populates `_id`, `created_at`, `updated_at` for you |
 | `FindByID(ctx, id)` | Look up by hex ObjectID | Returns `esmongo.ErrNotFound` for both a malformed ID and no match — never a raw driver error or panic |
-| `Find(ctx, filter, afterID, pageSize)` | Query a page of documents | Cursor-based pagination (`_id > afterID`, sorted ascending), never `skip`/`limit`; `pageSize` is capped at `MaxPageSize` (200) regardless of what's requested |
+| `Find(ctx, filter)` | Query all matching documents | Standard non-paginated fetch of all non-deleted matches |
+| `FindPage(ctx, filter, afterID, pageSize)` | Query a page of documents | Explicit cursor-based pagination (`_id > afterID`, sorted ascending); `pageSize` is capped at `MaxPageSize` (200) |
 | `UpdateOne(ctx, id, fields)` | Partial update | Applied via `$set`, never a whole-document replacement; bumps `updated_at`; returns `ErrNotFound` on no match rather than silently no-op'ing |
 | `DeleteOne(ctx, id)` | Soft delete | Sets `deleted_at`; every read/update above excludes soft-deleted documents automatically |
 | `HardDelete(ctx, id)` | Permanent delete | Deliberately separate from `DeleteOne` so an unrecoverable removal is never invoked by accident — only use it when a literal, permanent erasure is actually required (e.g. a user data-erasure request) |
-| `Count(ctx, filter)` / `Exists(ctx, filter)` | Aggregate checks | Use these instead of `Find` + a length check — faster and avoids pagination edge cases |
+| `Count(ctx, filter)` / `Exists(ctx, filter)` | Aggregate checks | Use these instead of `Find` + a length check when only an aggregate result is needed |
 
-`Find` returns a `FindResult[PT]{Items, NextCursor}` — `NextCursor` is
-the hex ID to pass as `afterID` for the next page, and is empty when
-there's no further page.
+`FindPage` returns a `FindResult[PT]{Items, NextCursor}`. `NextCursor`
+is the hex ID to pass as `afterID` for the next page, and is empty
+when there is no further page. Use `Find` by default; call `FindPage`
+only when the caller explicitly needs pagination.
 
 **Default to `DeleteOne`.** A soft delete gives an audit trail and a
 recovery path, which is usually right for anything tied to user data or
@@ -251,7 +257,7 @@ These are non-negotiable, not stylistic preferences:
 - A package-level global `*mongo.Client` or repository instead of
   explicit dependency injection through `main.go` → `router.New` →
   handler constructor (matches how `cfg` and `logger` already flow).
-- Skip/limit pagination instead of the cursor-based pattern `Find`
+- Skip/limit pagination instead of the cursor-based pattern `FindPage`
   already implements.
 - Calling `HardDelete` where `DeleteOne` (soft delete) was actually
   called for.
