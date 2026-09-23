@@ -76,7 +76,7 @@ narration of what the code does.
   counter`, `// loop over items`).
 - **Do** comment non-obvious constraints: why a magic number is what it is, why an edge
   case is handled a particular way, why a seemingly-simpler approach was rejected,
-  concurrency/ordering requirements that aren't visible from the code itself.
+  concurrency/ordering requirements that aren't visible from the source code itself.
 - If a comment would only explain *what* is happening rather than *why*, it belongs in
   the chat response to the user, a docs markdown file, or a relevant skill — not in the
   source file.
@@ -91,6 +91,14 @@ All code produced by an AI agent must land on a branch prefixed `vibes/...` (e.g
 `vibes/add-widgets-endpoint`) — this marks the branch as agent-generated and not yet
 human-reviewed.
 
+- Break work into small, focused branches and pull requests. Each pull request should
+  represent a discrete, reviewable change; do not bundle unrelated concerns into one
+  branch merely because they are part of the same larger effort.
+- For dependent changes, agents may use GitHub stacked pull requests. The bottom branch
+  should target the trunk (usually `main`), and each subsequent branch should target the
+  branch immediately below it. Keep each layer independently reviewable, with lower
+  branches containing foundational changes and higher branches containing changes that
+  depend on them. Stacked pull requests must be merged from the bottom up.
 - Any pull request opened from a `vibes/...` branch must be tagged with the `vibes`
   label on GitHub.
 - Agents should never push agent-generated commits directly to `main` or to a
