@@ -17,21 +17,26 @@ The project has two main components:
 
 ## Agent Skills
 
-Before starting a task, check `.skills/` for a relevant skill. Each skill lives in its
-own subdirectory with a `SKILL.md` describing when and how to use it (e.g. adding a
-server endpoint, MongoDB data access patterns). Skills encode the project's established
-conventions — treat them as the first source of truth for how to do something,
-ahead of
-inferring a pattern from surrounding code. When a skill's conventions and the current
-codebase disagree, verify against the codebase and update the skill rather than
-propagating stale guidance.
+Before implementing any substantial code, inspect `.skills/` for a suitable predefined
+skill. Each skill lives in its own subdirectory with a `SKILL.md` describing when and
+how to use it (e.g. adding a server endpoint, MongoDB data access patterns). Read and
+follow applicable skills before implementation; they encode the project's established
+conventions and are the first source of truth, ahead of inferring a pattern from the
+surrounding code. When a skill's conventions and the current codebase disagree, verify
+against the codebase and update the skill rather than propagating stale guidance.
 
 ## Editor Tooling
 
-Prefer the built-in editor tools for reading, searching, editing, and diagnosing the
-project rather than relying on Python scripts or ad hoc shell commands. Use a command
-only when the built-in tools are unavailable or insufficient, and only when there is a
-justifiable reason to do so.
+Always first check whether the built-in editor tools can perform a needed function
+before using the command line or writing a Python script. Prefer those tools for
+reading, searching, editing, and diagnosing the project. Use a command-line tool or
+script only when the editor tools are unavailable or insufficient, and only when there
+is a justifiable reason to do so.
+
+## Execution and Validation
+
+Do not automatically run, build, lint, or test code by default. Only execute code or
+run validation commands when the human explicitly requests it.
 
 ## Security Outlook
 
@@ -81,11 +86,11 @@ Comments are for information the code cannot express on its own — not a runnin
 narration of what the code does.
 
 - **Do not** add comments that restate what the next line obviously does (`// increment
-  counter`, `// loop over items`).
+counter`, `// loop over items`).
 - **Do** comment non-obvious constraints: why a magic number is what it is, why an edge
   case is handled a particular way, why a seemingly-simpler approach was rejected,
   concurrency/ordering requirements that aren't visible from the source code itself.
-- If a comment would only explain *what* is happening rather than *why*, it belongs in
+- If a comment would only explain _what_ is happening rather than _why_, it belongs in
   the chat response to the user, a docs markdown file, or a relevant skill — not in
   the source file.
 - When editing existing code, remove drive-by explanatory comments that no longer earn
