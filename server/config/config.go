@@ -21,6 +21,13 @@ type Config struct {
 	LogLevel        string        `yaml:"log_level"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
 	CORSOrigins     []string      `yaml:"cors_origins"`
+
+	MongoURI                    string        `yaml:"mongo_uri"`
+	MongoDatabase               string        `yaml:"mongo_database"`
+	MongoConnectTimeout         time.Duration `yaml:"mongo_connect_timeout"`
+	MongoServerSelectionTimeout time.Duration `yaml:"mongo_server_selection_timeout"`
+	MongoMaxPoolSize            uint64        `yaml:"mongo_max_pool_size"`
+	MongoMinPoolSize            uint64        `yaml:"mongo_min_pool_size"`
 }
 
 func (c *Config) Addr() string {
@@ -35,5 +42,11 @@ func defaults() *Config {
 		LogLevel:        "info",
 		ShutdownTimeout: 15 * time.Second,
 		CORSOrigins:     []string{},
+
+		MongoDatabase:               "esplanade",
+		MongoConnectTimeout:         10 * time.Second,
+		MongoServerSelectionTimeout: 10 * time.Second,
+		MongoMaxPoolSize:            100,
+		MongoMinPoolSize:            0,
 	}
 }

@@ -19,3 +19,21 @@ shutdown_timeout: 15s
 # Allowed CORS origins.  Use ["*"] only for local development.
 cors_origins:
   - "http://localhost:3000"
+
+# MongoDB connection settings.
+#
+# mongo_uri is intentionally NOT set here — it carries credentials and
+# must come from the ESPLANADE_MONGO_URI environment variable (or a
+# secret store) in every real environment. The line below is a
+# placeholder for reference only; do not uncomment it in a committed file.
+# mongo_uri: "mongodb://user:password@localhost:27017/?replicaSet=rs0"
+
+mongo_database: esplanade
+
+# Per-operation connect / server-selection bounds.
+mongo_connect_timeout: 10s
+mongo_server_selection_timeout: 10s
+
+# Connection pool bounds.
+mongo_max_pool_size: 100
+mongo_min_pool_size: 0
