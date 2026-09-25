@@ -47,11 +47,10 @@ func main() {
 	mongoDB := esmongo.Database(mongoClient, cfg.MongoDatabase)
 
 	indexCtx, indexCancel := context.WithTimeout(context.Background(), repository.DefaultOperationTimeout)
-	err = repository.EnsureIndexes(indexCtx, mongoDB)
-	indexCancel()
-	if err != nil {
+	if err = repository.EnsureIndexes(indexCtx, mongoDB); err != nil {
 		logger.Fatal("ensuring mongo indexes", zap.Error(err))
 	}
+	indexCancel()
 
 	mux := router.New(mongoClient)
 	handler := middleware.Chain(
