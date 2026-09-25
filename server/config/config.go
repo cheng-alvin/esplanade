@@ -5,6 +5,7 @@
 //  1. Environment variables (prefixed with ESPLANADE_)
 //  2. config.yaml in working directory
 //  3. Built-in defaults
+
 package config
 
 import (
@@ -13,21 +14,21 @@ import (
 )
 
 type Config struct {
-	Env  string `yaml:"env"`
-	Host string `yaml:"host"`
+	Env  string `yaml:"env" env:"ENV"`
+	Host string `yaml:"host" env:"HOST"`
 
-	Port int `yaml:"port"`
+	Port int `yaml:"port" env:"PORT"`
 
-	LogLevel        string        `yaml:"log_level"`
-	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
-	CORSOrigins     []string      `yaml:"cors_origins"`
+	LogLevel        string        `yaml:"log_level" env:"LOG_LEVEL"`
+	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"SHUTDOWN_TIMEOUT"`
+	CORSOrigins     []string      `yaml:"cors_origins" env:"CORS_ORIGINS" envSeparator:","`
 
-	MongoURI                    string        `yaml:"mongo_uri"`
-	MongoDatabase               string        `yaml:"mongo_database"`
-	MongoConnectTimeout         time.Duration `yaml:"mongo_connect_timeout"`
-	MongoServerSelectionTimeout time.Duration `yaml:"mongo_server_selection_timeout"`
-	MongoMaxPoolSize            uint64        `yaml:"mongo_max_pool_size"`
-	MongoMinPoolSize            uint64        `yaml:"mongo_min_pool_size"`
+	MongoURI                    string        `yaml:"mongo_uri" env:"MONGO_URI"`
+	MongoDatabase               string        `yaml:"mongo_database" env:"MONGO_DATABASE"`
+	MongoConnectTimeout         time.Duration `yaml:"mongo_connect_timeout" env:"MONGO_CONNECT_TIMEOUT"`
+	MongoServerSelectionTimeout time.Duration `yaml:"mongo_server_selection_timeout" env:"MONGO_SERVER_SELECTION_TIMEOUT"`
+	MongoMaxPoolSize            uint64        `yaml:"mongo_max_pool_size" env:"MONGO_MAX_POOL_SIZE"`
+	MongoMinPoolSize            uint64        `yaml:"mongo_min_pool_size" env:"MONGO_MIN_POOL_SIZE"`
 }
 
 func (c *Config) Addr() string {
