@@ -7,6 +7,9 @@ import (
 )
 
 var (
+	// Indicates the MongoDB connection configuration is invalid or incomplete.
+	ErrConfig = errors.New("mongo: configuration error")
+
 	// Indicates no document matched the requested filter.
 	ErrNotFound = errors.New("mongo: not found")
 
