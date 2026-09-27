@@ -30,17 +30,24 @@ const (
 	DefaultOperationTimeout = 5 * time.Second
 )
 
-// deletedAtUnset is the filter fragment excluding soft-deleted
-// documents. It is composed into every read and update the generic
-// layer performs by default.
-var deletedAtUnset = bson.M{"$exists": false}
-
+// Document is the minimum contract required by Repository. The repository
+// owns Mongo IDs, while the document owns the way that ID is represented.
 type Document interface {
 	SetID(bson.ObjectID)
 	GetID() bson.ObjectID
+}
+
+// Auditable is implemented by documents that support repository-managed audit
+// timestamps. It embeds Document, so every auditable document also satisfies
+// the ID contract required by repository operations.
+type Auditable interface {
+	Document
 	SetCreatedAt(time.Time)
 	SetUpdatedAt(time.Time)
 }
+
+// AuditedDocument is a descriptive alias for Auditable.
+type AuditedDocument = Auditable
 
 type Base struct {
 	ID        bson.ObjectID `bson:"_id,omitempty"`
@@ -54,14 +61,10 @@ func (b *Base) GetID() bson.ObjectID     { return b.ID }
 func (b *Base) SetCreatedAt(t time.Time) { b.CreatedAt = t }
 func (b *Base) SetUpdatedAt(t time.Time) { b.UpdatedAt = t }
 
-// Repository is a thin, generic wrapper around a single Mongo
-// collection.
-//
-// T is the resource's struct type; PT is its pointer type, constrained
-// to implement Document (satisfied automatically by embedding Base).
-// Instantiate as e.g. repository.New[Device](collection, timeout), which
-// yields a Repository[Device, *Device].
-type Repository[T any, PT interface {
+// repository contains the CRUD mechanics shared by Repository and
+// AuditedRepository. The exported wrappers choose whether filters are scoped
+// to non-deleted documents and whether writes manage audit timestamps.
+type repository[T any, PT interface {
 	*T
 	Document
 }] struct {
@@ -69,45 +72,49 @@ type Repository[T any, PT interface {
 	timeout    time.Duration
 }
 
-// New returns a Repository backed by collection. timeout bounds every
-// individual operation issued through it; pass 0 to use
-// DefaultOperationTimeout.
-func New[T any, PT interface {
+func newRepository[T any, PT interface {
 	*T
 	Document
-}](collection *mongo.Collection, timeout time.Duration) *Repository[T, PT] {
+}](collection *mongo.Collection, timeout time.Duration) *repository[T, PT] {
 	if timeout <= 0 {
 		timeout = DefaultOperationTimeout
 	}
-	return &Repository[T, PT]{collection: collection, timeout: timeout}
+	return &repository[T, PT]{collection: collection, timeout: timeout}
 }
 
-func (r *Repository[T, PT]) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+func (r *repository[T, PT]) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, r.timeout)
 }
 
-// scoped returns a copy of filter with the soft-delete exclusion merged
-// in. filter is never mutated.
-func scoped(filter bson.M) bson.M {
-	q := make(bson.M, len(filter)+1)
+type filterScope func(bson.M) bson.M
+
+func unscoped(filter bson.M) bson.M {
+	q := make(bson.M, len(filter))
 	for k, v := range filter {
 		q[k] = v
 	}
+	return q
+}
+
+// deletedAtUnset is the filter fragment excluding soft-deleted
+// documents. It is composed into every read and update the audited
+// repository performs by default.
+var deletedAtUnset = bson.M{"$exists": false}
+
+func scoped(filter bson.M) bson.M {
+	q := unscoped(filter)
 	q["deleted_at"] = deletedAtUnset
 	return q
 }
 
-// InsertOne inserts doc, populating its ID, CreatedAt, and UpdatedAt
-// before the write so every resource gets consistent audit fields
-// without the caller having to remember to set them.
-func (r *Repository[T, PT]) InsertOne(ctx context.Context, doc PT) error {
+func (r *repository[T, PT]) insertOne(ctx context.Context, doc PT, initialize func(PT, time.Time)) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	now := time.Now().UTC()
 	doc.SetID(bson.NewObjectID())
-	doc.SetCreatedAt(now)
-	doc.SetUpdatedAt(now)
+	if initialize != nil {
+		initialize(doc, time.Now().UTC())
+	}
 
 	if _, err := r.collection.InsertOne(ctx, doc); err != nil {
 		return esmongo.TranslateError(err)
@@ -115,11 +122,7 @@ func (r *Repository[T, PT]) InsertOne(ctx context.Context, doc PT) error {
 	return nil
 }
 
-// FindByID looks up a single, non-deleted document by its hex-encoded
-// ObjectID. It returns esmongo.ErrNotFound both when id is malformed and
-// when no document matches — callers get one clear error either way,
-// never a raw driver error or a panic.
-func (r *Repository[T, PT]) FindByID(ctx context.Context, id string) (PT, error) {
+func (r *repository[T, PT]) findByID(ctx context.Context, id string, scope filterScope) (PT, error) {
 	oid, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		return nil, esmongo.ErrNotFound
@@ -128,7 +131,7 @@ func (r *Repository[T, PT]) FindByID(ctx context.Context, id string) (PT, error)
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	filter := scoped(bson.M{"_id": oid})
+	filter := scope(bson.M{"_id": oid})
 
 	var doc T
 	if err := r.collection.FindOne(ctx, filter).Decode(&doc); err != nil {
@@ -137,16 +140,11 @@ func (r *Repository[T, PT]) FindByID(ctx context.Context, id string) (PT, error)
 	return PT(&doc), nil
 }
 
-// Find returns all non-deleted documents matching filter.
-//
-// filter must be built by the resource-specific package from typed
-// parameters — Find never accepts a caller-supplied arbitrary filter
-// map, since that's the main NoSQL-injection vector in Go Mongo code.
-func (r *Repository[T, PT]) Find(ctx context.Context, filter bson.M) ([]PT, error) {
+func (r *repository[T, PT]) find(ctx context.Context, filter bson.M, scope filterScope) ([]PT, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	cursor, err := r.collection.Find(ctx, scoped(filter))
+	cursor, err := r.collection.Find(ctx, scope(filter))
 	if err != nil {
 		return nil, esmongo.TranslateError(err)
 	}
@@ -176,18 +174,7 @@ type FindResult[PT any] struct {
 	NextCursor string
 }
 
-// FindPage returns a page of non-deleted documents matching filter,
-// ordered by _id ascending.
-//
-// filter must be built by the resource-specific package from typed
-// parameters — FindPage never accepts a caller-supplied arbitrary filter
-// map, since that's the main NoSQL-injection vector in Go Mongo code.
-//
-// Pagination is cursor-based (filter on _id > afterID) rather than
-// skip/limit, since skip/limit slows down as the offset grows and can
-// return inconsistent pages under concurrent inserts. pageSize is capped
-// at MaxPageSize regardless of what's requested.
-func (r *Repository[T, PT]) FindPage(ctx context.Context, filter bson.M, afterID string, pageSize int) (FindResult[PT], error) {
+func (r *repository[T, PT]) findPage(ctx context.Context, filter bson.M, afterID string, pageSize int, scope filterScope) (FindResult[PT], error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
@@ -198,7 +185,7 @@ func (r *Repository[T, PT]) FindPage(ctx context.Context, filter bson.M, afterID
 		pageSize = MaxPageSize
 	}
 
-	q := scoped(filter)
+	q := scope(filter)
 	if afterID != "" {
 		oid, err := bson.ObjectIDFromHex(afterID)
 		if err != nil {
@@ -236,12 +223,7 @@ func (r *Repository[T, PT]) FindPage(ctx context.Context, filter bson.M, afterID
 	return result, nil
 }
 
-// UpdateOne applies fields to the document with the given id via a
-// $set update — never a whole-document replacement — so a caller can't
-// accidentally wipe fields it didn't intend to touch. UpdatedAt is
-// bumped automatically. Returns esmongo.ErrNotFound if no non-deleted
-// document matched, rather than silently succeeding on a no-op.
-func (r *Repository[T, PT]) UpdateOne(ctx context.Context, id string, fields bson.M) error {
+func (r *repository[T, PT]) updateOne(ctx context.Context, id string, fields bson.M, scope filterScope, updateFields func(bson.M)) error {
 	oid, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		return esmongo.ErrNotFound
@@ -254,9 +236,11 @@ func (r *Repository[T, PT]) UpdateOne(ctx context.Context, id string, fields bso
 	for k, v := range fields {
 		set[k] = v
 	}
-	set["updated_at"] = time.Now().UTC()
+	if updateFields != nil {
+		updateFields(set)
+	}
 
-	filter := scoped(bson.M{"_id": oid})
+	filter := scope(bson.M{"_id": oid})
 	res, err := r.collection.UpdateOne(ctx, filter, bson.M{"$set": set})
 	if err != nil {
 		return esmongo.TranslateError(err)
@@ -267,41 +251,7 @@ func (r *Repository[T, PT]) UpdateOne(ctx context.Context, id string, fields bso
 	return nil
 }
 
-// DeleteOne soft-deletes the document with the given id by setting
-// deleted_at, rather than removing it. A soft delete is usually right
-// for anything tied to user data or sync state — it gives an audit
-// trail and a recovery path. Returns esmongo.ErrNotFound if no
-// non-deleted document matched.
-func (r *Repository[T, PT]) DeleteOne(ctx context.Context, id string) error {
-	oid, err := bson.ObjectIDFromHex(id)
-	if err != nil {
-		return esmongo.ErrNotFound
-	}
-
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-
-	now := time.Now().UTC()
-	filter := scoped(bson.M{"_id": oid})
-	update := bson.M{"$set": bson.M{"deleted_at": now, "updated_at": now}}
-
-	res, err := r.collection.UpdateOne(ctx, filter, update)
-	if err != nil {
-		return esmongo.TranslateError(err)
-	}
-	if res.MatchedCount == 0 {
-		return esmongo.ErrNotFound
-	}
-	return nil
-}
-
-// HardDelete permanently removes the document with the given id,
-// bypassing the soft-delete marker entirely. This is a distinct,
-// explicitly-named method — deliberately separate from DeleteOne — so a
-// literal, unrecoverable removal is never invoked by accident. Prefer
-// DeleteOne unless a hard delete is actually required (e.g. a
-// user-initiated data erasure request).
-func (r *Repository[T, PT]) HardDelete(ctx context.Context, id string) error {
+func (r *repository[T, PT]) deleteOne(ctx context.Context, id string) error {
 	oid, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		return esmongo.ErrNotFound
@@ -320,27 +270,50 @@ func (r *Repository[T, PT]) HardDelete(ctx context.Context, id string) error {
 	return nil
 }
 
-// Count returns the number of non-deleted documents matching filter.
-func (r *Repository[T, PT]) Count(ctx context.Context, filter bson.M) (int64, error) {
+func (r *repository[T, PT]) softDeleteOne(ctx context.Context, id string, scope filterScope) error {
+	oid, err := bson.ObjectIDFromHex(id)
+	if err != nil {
+		return esmongo.ErrNotFound
+	}
+
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	count, err := r.collection.CountDocuments(ctx, scoped(filter))
+	now := time.Now().UTC()
+	filter := scope(bson.M{"_id": oid})
+	update := bson.M{"$set": bson.M{"deleted_at": now, "updated_at": now}}
+
+	res, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return esmongo.TranslateError(err)
+	}
+	if res.MatchedCount == 0 {
+		return esmongo.ErrNotFound
+	}
+	return nil
+}
+
+func (r *repository[T, PT]) hardDelete(ctx context.Context, id string) error {
+	return r.deleteOne(ctx, id)
+}
+
+func (r *repository[T, PT]) count(ctx context.Context, filter bson.M, scope filterScope) (int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	count, err := r.collection.CountDocuments(ctx, scope(filter))
 	if err != nil {
 		return 0, esmongo.TranslateError(err)
 	}
 	return count, nil
 }
 
-// Exists reports whether at least one non-deleted document matches
-// filter. It is implemented as a projected FindOne rather than Find
-// plus a full result fetch, which would be unnecessarily expensive.
-func (r *Repository[T, PT]) Exists(ctx context.Context, filter bson.M) (bool, error) {
+func (r *repository[T, PT]) exists(ctx context.Context, filter bson.M, scope filterScope) (bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
 	findOneOpts := options.FindOne().SetProjection(bson.M{"_id": 1})
-	err := r.collection.FindOne(ctx, scoped(filter), findOneOpts).Err()
+	err := r.collection.FindOne(ctx, scope(filter), findOneOpts).Err()
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return false, nil

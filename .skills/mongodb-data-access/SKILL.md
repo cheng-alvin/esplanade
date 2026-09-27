@@ -26,10 +26,11 @@ use both together when a new endpoint needs persistence.
 
 For the full narrative version of this guide, see
 `server/docs/MONGODB.md`. For the original design rationale (why a
-generic repository, why cursor pagination, why soft deletes by
-default), see the Canva doc "Esplanade Server — MongoDB Integration
-Implementation Plan". This skill is the condensed, action-oriented
-version of both — read them if you need more context than what's here.
+generic repository, why cursor pagination, and why audited resources use
+soft deletes by default), see the Canva doc "Esplanade Server — MongoDB
+Integration Implementation Plan". This skill is the condensed,
+action-oriented version of both — read them if you need more context than
+what's here.
 
 ## Prerequisites
 
@@ -46,8 +47,10 @@ server/
 │   ├── mongo.go     ← connection lifecycle: New, Ping, Disconnect, Database, Collection
 │   └── errors.go    ← ErrNotFound, ErrConflict, TranslateError
 ├── repository/
-│   ├── repository.go ← generic Repository[T, PT] CRUD primitive
-│   └── index.go       ← EnsureIndexes + IndexProvider, called once at startup
+│   ├── repository.go          ← shared types and generic CRUD primitives
+│   ├── standard_repository.go ← lightweight Repository[T, PT] and New
+│   ├── audited_repository.go  ← AuditedRepository[T, PT] and NewAudited
+│   └── index.go               ← EnsureIndexes + IndexProvider, called once at startup
 └── handler/<resource>/ ← where a resource's handlers live (see add-server-endpoint skill)
 ```
 
@@ -75,10 +78,12 @@ Mongo."
 
 ### 1. Define the document type
 
-Embed `repository.Base` for the audit fields (`_id`, `created_at`,
-`updated_at`, `deleted_at`) — this is what satisfies the `Document`
-interface (`SetID`/`GetID`/`SetCreatedAt`/`SetUpdatedAt`) automatically,
-so you never hand-roll it:
+For an audit-aware resource, embed `repository.Base` for the audit fields
+(`_id`, `created_at`, `updated_at`, `deleted_at`). It satisfies the
+`Auditable` interface, which embeds `Document`, so it supplies both the
+`SetID`/`GetID` and `SetCreatedAt`/`SetUpdatedAt` methods automatically. A
+lightweight resource only needs to implement `SetID` and `GetID` and can omit
+`Base`:
 
 ```go
 // handler/devices/model.go
@@ -95,17 +100,29 @@ type Device struct {
 }
 ```
 
-### 2. Instantiate a Repository
+### 2. Choose a repository mode
+
+Use the audited repository for resources that embed `Base`:
 
 ```go
-repo := repository.New[Device](
+repo := repository.NewAudited[Device](
     esmongo.Collection(mongoDB, "devices"),
     0, // 0 = repository.DefaultOperationTimeout (5s)
 )
 ```
 
-`repository.New[Device](...)` infers the pointer type parameter from
-`Device` automatically — you don't need to write `New[Device, *Device]`.
+Use the lightweight repository for resources that do not need audit fields or
+soft deletes:
+
+```go
+repo := repository.New[LogEntry](
+    esmongo.Collection(mongoDB, "log_entries"),
+    0,
+)
+```
+
+Both constructors infer the pointer type parameter automatically — you don't
+need to write `New[Device, *Device]` or `NewAudited[Device, *Device]`.
 
 ### 3. Add domain-specific queries
 
@@ -152,9 +169,9 @@ drifting apart.
 
 A handler should depend on an interface with just the methods it
 actually calls (e.g. `FindByID`, `Find`, or `FindPage`), not the full
-`*Repository[Device, *Device]` type — that's what lets handler tests
-mock exactly what they use, rather than standing up a real Mongo
-instance for every test.
+`*Repository[Device, *Device]` or `*AuditedRepository[Device, *Device]`
+type — that's what lets handler tests mock exactly what they use, rather
+than standing up a real Mongo instance for every test.
 
 ### 6. Wire the repository into the handler package
 
@@ -183,31 +200,44 @@ existing `mongoClient`/`mongoDB` setup, and gets passed down to
 
 ## Repository primitive reference
 
+Keep shared repository mechanics in `repository.go`. The lightweight public
+`Repository` API belongs in `standard_repository.go`, and the audit-aware
+`AuditedRepository` API belongs in `audited_repository.go`; keep each
+constructor, struct, and associated methods together in its respective file.
+
 Every method takes `context.Context` first and applies its own bounded
 timeout (`repository.DefaultOperationTimeout`, 5s by default) —
 independent of the caller's request timeout, so a slow query can't hold
 a connection open for the full request lifetime.
 
-| Method | Does | Guarantee |
-|---|---|---|
-| `InsertOne(ctx, doc)` | Insert a new document | Populates `_id`, `created_at`, `updated_at` for you |
-| `FindByID(ctx, id)` | Look up by hex ObjectID | Returns `esmongo.ErrNotFound` for both a malformed ID and no match — never a raw driver error or panic |
-| `Find(ctx, filter)` | Query all matching documents | Standard non-paginated fetch of all non-deleted matches |
-| `FindPage(ctx, filter, afterID, pageSize)` | Query a page of documents | Explicit cursor-based pagination (`_id > afterID`, sorted ascending); `pageSize` is capped at `MaxPageSize` (200) |
-| `UpdateOne(ctx, id, fields)` | Partial update | Applied via `$set`, never a whole-document replacement; bumps `updated_at`; returns `ErrNotFound` on no match rather than silently no-op'ing |
-| `DeleteOne(ctx, id)` | Soft delete | Sets `deleted_at`; every read/update above excludes soft-deleted documents automatically |
-| `HardDelete(ctx, id)` | Permanent delete | Deliberately separate from `DeleteOne` so an unrecoverable removal is never invoked by accident — only use it when a literal, permanent erasure is actually required (e.g. a user data-erasure request) |
-| `Count(ctx, filter)` / `Exists(ctx, filter)` | Aggregate checks | Use these instead of `Find` + a length check when only an aggregate result is needed |
+`Repository` and `AuditedRepository` expose the same CRUD surface, with
+slightly different write and filtering guarantees:
+
+| Method | Does | Lightweight `Repository` | `AuditedRepository` |
+|---|---|---|---|
+| `InsertOne(ctx, doc)` | Insert a new document | Populates `_id` | Populates `_id`, `created_at`, and `updated_at` |
+| `FindByID(ctx, id)` | Look up by hex ObjectID | Returns `esmongo.ErrNotFound` for malformed IDs and misses | Same, excluding soft-deleted documents |
+| `Find(ctx, filter)` | Query all matching documents | Standard non-paginated fetch | Fetch excludes soft-deleted documents |
+| `FindPage(ctx, filter, afterID, pageSize)` | Query a page | Cursor-based (`_id > afterID`, sorted ascending), capped at `MaxPageSize` | Same, excluding soft-deleted documents |
+| `UpdateOne(ctx, id, fields)` | Partial update via `$set` | Does not modify audit fields | Bumps `updated_at`; returns `ErrNotFound` on no match |
+| `DeleteOne(ctx, id)` | Delete a document | Permanent delete | Soft delete via `deleted_at`; reads and updates exclude it |
+| `HardDelete(ctx, id)` | Permanent delete | Same as `DeleteOne` | Bypasses the soft-delete marker |
+| `Count(ctx, filter)` / `Exists(ctx, filter)` | Aggregate checks | Counts matching documents | Counts matching non-deleted documents |
+
+Both variants return translated Mongo errors and apply the bounded operation
+timeout. Filters must still be built from typed parameters inside the resource
+package, never passed through directly from client input.
 
 `FindPage` returns a `FindResult[PT]{Items, NextCursor}`. `NextCursor`
 is the hex ID to pass as `afterID` for the next page, and is empty
 when there is no further page. Use `Find` by default; call `FindPage`
 only when the caller explicitly needs pagination.
 
-**Default to `DeleteOne`.** A soft delete gives an audit trail and a
-recovery path, which is usually right for anything tied to user data or
-sync state. Reach for `HardDelete` only when permanence is the actual
-requirement, not the default.
+**For audited repositories, default to `DeleteOne`.** A soft delete gives
+an audit trail and a recovery path, which is usually right for anything tied
+to user data or sync state. Reach for `HardDelete` only when permanence is
+the actual requirement, not the default. In a lightweight repository,
+`DeleteOne` is already permanent because no soft-delete contract is assumed.
 
 ## Error handling
 
@@ -253,14 +283,15 @@ These are non-negotiable, not stylistic preferences:
 ## Anti-patterns to avoid
 
 - Reimplementing connection setup, timeouts, or CRUD boilerplate
-  per-resource instead of composing `repository.Repository[T, PT]`.
+  per-resource instead of composing `repository.Repository[T, PT]` or
+  `repository.AuditedRepository[T, PT]`.
 - A package-level global `*mongo.Client` or repository instead of
   explicit dependency injection through `main.go` → `router.New` →
   handler constructor (matches how `cfg` and `logger` already flow).
 - Skip/limit pagination instead of the cursor-based pattern `FindPage`
   already implements.
-- Calling `HardDelete` where `DeleteOne` (soft delete) was actually
-  called for.
+- Calling `HardDelete` on an audited repository where `DeleteOne`
+  (soft delete) was actually called for.
 - Letting a raw driver error or `bson.M` filter cross from a resource
   package into the handler layer.
 
