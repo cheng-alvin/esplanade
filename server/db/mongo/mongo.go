@@ -26,12 +26,16 @@ import (
 // In production, cfg.MongoURI must specify TLS — New fails fast rather
 // than silently connecting in the clear.
 func New(ctx context.Context, cfg *config.Config) (*mongo.Client, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("%w: config is nil", ErrConfig)
+	}
+
 	if cfg.MongoURI == "" {
-		return nil, fmt.Errorf("mongo: MongoURI is not configured")
+		return nil, fmt.Errorf("%w: MongoURI is not configured", ErrConfig)
 	}
 
 	if cfg.Env == "production" && !hasTLS(cfg.MongoURI) {
-		return nil, fmt.Errorf("mongo: production environment requires a TLS-enabled connection URI")
+		return nil, fmt.Errorf("%w: production environment requires a TLS-enabled connection URI", ErrConfig)
 	}
 
 	clientOpts := options.Client().
@@ -44,7 +48,7 @@ func New(ctx context.Context, cfg *config.Config) (*mongo.Client, error) {
 
 	client, err := mongo.Connect(clientOpts)
 	if err != nil {
-		return nil, fmt.Errorf("mongo: connecting client: %w", err)
+		return nil, fmt.Errorf("%w: connecting client: %w", ErrConfig, err)
 	}
 
 	pingCtx, cancel := context.WithTimeout(ctx, cfg.MongoConnectTimeout)
