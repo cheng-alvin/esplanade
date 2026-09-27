@@ -54,8 +54,11 @@ pure liveness check with no downstream dependency.
 
 ## Adding a new resource
 
-1. **Define the document type**, embedding `repository.Base` for the
-   audit fields and `Document` interface:
+1. **Define the document type**. For an audit-aware resource, embed
+   `repository.Base` for `_id`, `created_at`, `updated_at`, and `deleted_at`;
+   it satisfies `Auditable`, which embeds `Document`, so it supplies both the
+   audit and ID contracts. A lightweight resource only needs to implement
+   `SetID` and `GetID` and does not need to embed `Base`:
 
    ```go
    // handler/devices/model.go (or a dedicated devices/ package)
@@ -72,12 +75,23 @@ pure liveness check with no downstream dependency.
    }
    ```
 
-2. **Instantiate a Repository** with the resource's collection:
+2. **Choose the repository behavior** for the resource. Use the audited
+   repository when the resource embeds `Base`:
 
    ```go
-   repo := repository.New[Device](
+   repo := repository.NewAudited[Device](
        esmongo.Collection(mongoDB, "devices"),
        0, // 0 = repository.DefaultOperationTimeout
+   )
+   ```
+
+   For a document that does not need audit fields or soft deletes, use the
+   lightweight repository instead:
+
+   ```go
+   repo := repository.New[LogEntry](
+       esmongo.Collection(mongoDB, "log_entries"),
+       0,
    )
    ```
 
@@ -110,20 +124,26 @@ pure liveness check with no downstream dependency.
    ```
 
 5. **Expose a narrow interface to handlers** (e.g. just `FindByID`,
-   `Find`, or `FindPage`), not the concrete `*Repository[...]` type, so
-   handler tests can mock exactly what they use.
+   `Find`, or `FindPage`), not the concrete `*Repository[...]` or
+   `*AuditedRepository[...]` type, so handler tests can mock exactly what
+   they use.
 
 ---
 
 ## Guarantees the generic layer gives you
 
-- **Consistent audit fields** — `InsertOne` sets `_id`, `created_at`,
-  `updated_at` for you.
-- **Soft deletes by default** — `DeleteOne` sets `deleted_at`; every
+- **Two repository modes** — `NewAudited` manages audit fields and soft
+  deletes for documents implementing `Auditable`; `New` is lightweight and
+  only requires the ID methods.
+- **Consistent audit fields in audited mode** — `InsertOne` sets `_id`,
+  `created_at`, and `updated_at`; `UpdateOne` bumps `updated_at`.
+- **Soft deletes in audited mode** — `DeleteOne` sets `deleted_at`; every
   read excludes soft-deleted documents automatically. Use `HardDelete`
   only when a literal, unrecoverable removal is actually required.
-- **Standard queries by default** — `Find` returns all non-deleted
-  documents matching the supplied filter without pagination.
+- **Permanent deletes in lightweight mode** — `DeleteOne` removes the
+  document because no `deleted_at` contract is assumed.
+- **Standard queries by default** — `Find` returns matching documents without
+  pagination; audited repositories exclude soft-deleted documents.
 - **Explicit cursor pagination** — `FindPage` provides cursor-based
   fetching on `_id` and caps page size at `repository.MaxPageSize` when
   a caller deliberately requests paged results.
