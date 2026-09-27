@@ -15,16 +15,20 @@ server/
 │   ├── mongo.go     ← connection lifecycle: New, Ping, Disconnect, Database, Collection
 │   └── errors.go    ← ErrNotFound, ErrConflict, TranslateError
 └── repository/
-    ├── repository.go ← generic Repository[T, PT] CRUD primitive
-    └── index.go       ← EnsureIndexes + IndexProvider, called once at startup
+    ├── repository.go          ← shared types and generic CRUD primitives
+    ├── standard_repository.go ← lightweight Repository[T, PT] and New
+    ├── audited_repository.go  ← AuditedRepository[T, PT] and NewAudited
+    └── index.go               ← EnsureIndexes + IndexProvider, called once at startup
 ```
 
 `db/mongo` owns the connection. `repository` owns generic CRUD mechanics
-on top of that connection. Neither package knows anything about a
-specific resource (devices, transfers, clipboard entries, ...) — that
-domain knowledge lives in per-resource packages that don't exist yet,
-built the same way `handler/widgets` is described in
-ADDING_ENDPOINTS.md.
+on top of that connection. Shared repository primitives remain in
+`repository.go`; the lightweight `Repository` API is kept in
+`standard_repository.go`, and the audit-aware `AuditedRepository` API is kept
+in `audited_repository.go`. Neither package knows anything about a specific
+resource (devices, transfers, clipboard entries, ...) — that domain knowledge
+lives in per-resource packages that don't exist yet, built the same way
+`handler/widgets` is described in ADDING_ENDPOINTS.md.
 
 ---
 
