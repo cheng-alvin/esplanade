@@ -80,8 +80,8 @@ Mongo."
 For an audit-aware resource, embed `repository.Base` for the audit fields
 (`_id`, `created_at`, `updated_at`, `deleted_at`). It satisfies the
 `Auditable` interface, which embeds `Document`, so it supplies both the
-`SetID`/`GetID` and `SetCreatedAt`/`SetUpdatedAt` methods automatically. A
-lightweight resource only needs to implement `SetID` and `GetID` and can omit
+`SetID`/`ID` and `SetCreatedAt`/`SetUpdatedAt` methods automatically. A
+lightweight resource only needs to implement `SetID` and `ID` and can omit
 `Base`:
 
 ```go
