@@ -34,7 +34,7 @@ const (
 // owns Mongo IDs, while the document owns the way that ID is represented.
 type Document interface {
 	SetID(bson.ObjectID)
-	GetID() bson.ObjectID
+	ID() bson.ObjectID
 }
 
 // RepositoryOperations is the shared CRUD surface implemented by standard and
@@ -236,7 +236,7 @@ func (r *repository[T, PT]) findPage(ctx context.Context, filter bson.M, afterID
 
 	result := FindResult[PT]{Items: items}
 	if len(items) == pageSize {
-		result.NextCursor = items[len(items)-1].GetID().Hex()
+		result.NextCursor = items[len(items)-1].ID().Hex()
 	}
 	return result, nil
 }

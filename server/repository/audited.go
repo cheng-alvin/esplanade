@@ -20,14 +20,14 @@ type Auditable interface {
 type AuditedDocument = Auditable
 
 type Base struct {
-	ID        bson.ObjectID `bson:"_id,omitempty"`
+	ObjectID  bson.ObjectID `bson:"_id,omitempty"`
 	CreatedAt time.Time     `bson:"created_at"`
 	UpdatedAt time.Time     `bson:"updated_at"`
 	DeletedAt *time.Time    `bson:"deleted_at,omitempty"`
 }
 
-func (b *Base) SetID(id bson.ObjectID)   { b.ID = id }
-func (b *Base) GetID() bson.ObjectID     { return b.ID }
+func (b *Base) SetID(id bson.ObjectID)   { b.ObjectID = id }
+func (b *Base) ID() bson.ObjectID        { return b.ObjectID }
 func (b *Base) SetCreatedAt(t time.Time) { b.CreatedAt = t }
 func (b *Base) SetUpdatedAt(t time.Time) { b.UpdatedAt = t }
 

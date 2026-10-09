@@ -64,7 +64,7 @@ pure liveness check with no downstream dependency.
    `repository.Base` for `_id`, `created_at`, `updated_at`, and `deleted_at`;
    it satisfies `Auditable`, which embeds `Document`, so it supplies both the
    audit and ID contracts. A lightweight resource only needs to implement
-   `SetID` and `GetID` and does not need to embed `Base`:
+   `SetID` and `ID` and does not need to embed `Base`:
 
    ```go
    // handler/devices/model.go (or a dedicated devices/ package)
