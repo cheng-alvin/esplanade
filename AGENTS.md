@@ -62,8 +62,10 @@ local-first or E2E guarantees.
   Logging → Recovery → CORS), and the graceful shutdown sequence in `main.go`.
 - Use `respond.JSON()` / `respond.Error()` for all HTTP responses — never write raw
   JSON.
-- Repository layer: the generic `Repository[T, PT]` in `server/repository/repository.go`
-  is the pattern for new resources — don't hand-roll Mongo calls.
+- Repository layer: the shared Mongo CRUD mechanics in
+  `server/repository/primitives.go`, exposed through the standard
+  `Repository[T, PT]` and audit-aware `AuditedRepository[T, PT]`, are the
+  pattern for new resources — don't hand-roll Mongo calls.
 - Route Mongo errors through `db/mongo/errors.go`'s `TranslateError()` rather than
   checking `mongo.Is...` directly.
 - Known build gap: `go.sum` needs a local `go mod tidy` before the server compiles

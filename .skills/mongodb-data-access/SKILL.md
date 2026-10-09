@@ -47,9 +47,9 @@ server/
 │   ├── mongo.go     ← connection lifecycle: New, Ping, Disconnect, Database, Collection
 │   └── errors.go    ← ErrNotFound, ErrConflict, TranslateError
 ├── repository/
-│   ├── repository.go          ← shared types and generic CRUD primitives
-│   ├── standard_repository.go ← lightweight Repository[T, PT] and New
-│   ├── audited_repository.go  ← AuditedRepository[T, PT] and NewAudited
+│   ├── primitives.go ← shared types and generic CRUD primitives
+│   ├── standard.go   ← lightweight Repository[T, PT] and New
+│   ├── audited.go   ← AuditedRepository[T, PT] and NewAudited
 │   └── index.go               ← EnsureIndexes + IndexProvider, called once at startup
 └── handler/<resource>/ ← where a resource's handlers live (see add-server-endpoint skill)
 ```
@@ -200,9 +200,9 @@ existing `mongoClient`/`mongoDB` setup, and gets passed down to
 
 ## Repository primitive reference
 
-Keep shared repository mechanics in `repository.go`. The lightweight public
-`Repository` API belongs in `standard_repository.go`, and the audit-aware
-`AuditedRepository` API belongs in `audited_repository.go`; keep each
+Keep shared repository mechanics in `primitives.go`. The lightweight public
+`Repository` API belongs in `standard.go`, and the audit-aware
+`AuditedRepository` API belongs in `audited.go`; keep each
 constructor, struct, and associated methods together in its respective file.
 
 Every method takes `context.Context` first and applies its own bounded
