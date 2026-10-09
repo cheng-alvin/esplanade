@@ -150,17 +150,8 @@ func (r *Repository[T, PT]) Find(ctx context.Context, filter bson.M) ([]PT, erro
 	if err != nil {
 		return nil, esmongo.TranslateError(err)
 	}
-	defer cursor.Close(ctx)
-
 	items := make([]PT, 0)
-	for cursor.Next(ctx) {
-		var doc T
-		if err := cursor.Decode(&doc); err != nil {
-			return nil, fmt.Errorf("repository: decoding document: %w", err)
-		}
-		items = append(items, PT(&doc))
-	}
-	if err := cursor.Err(); err != nil {
+	if err := cursor.All(ctx, &items); err != nil {
 		return nil, esmongo.TranslateError(err)
 	}
 	return items, nil
