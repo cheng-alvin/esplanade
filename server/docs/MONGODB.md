@@ -15,20 +15,22 @@ server/
 │   ├── mongo.go     ← connection lifecycle: New, Ping, Disconnect, Database, Collection
 │   └── errors.go    ← ErrNotFound, ErrConflict, TranslateError
 └── repository/
-    ├── primitives.go ← shared types and generic CRUD primitives
-    ├── standard.go   ← lightweight Repository[T, PT] and New
-    ├── audited.go   ← AuditedRepository[T, PT] and NewAudited
+    ├── primitives.go ← shared types, CRUD primitives, and primitive-adjacent API methods
+    ├── standard.go   ← lightweight Repository[T, PT] struct and New
+    ├── audited.go   ← AuditedRepository[T, PT], NewAudited, and audited document types
     └── index.go               ← EnsureIndexes + IndexProvider, called once at startup
 ```
 
 `db/mongo` owns the connection. `repository` owns generic CRUD mechanics
-on top of that connection. Shared repository primitives remain in
-`primitives.go`; the lightweight `Repository` API is kept in
-`standard.go`, and the audit-aware `AuditedRepository` API is kept
-in `audited.go`. Neither package knows anything about a specific
-resource (devices, transfers, clipboard entries, ...) — that domain knowledge
-lives in per-resource packages that don't exist yet, built the same way
-`handler/widgets` is described in ADDING_ENDPOINTS.md.
+on top of that connection. Shared repository primitives and public adapter
+methods remain in `primitives.go`, colocated with the base primitive each
+method delegates to. `standard.go` and `audited.go` keep the public
+repository structs and their constructors in their respective files, along
+with the audited document types. Neither package knows anything about a
+specific resource (devices, transfers,
+clipboard entries, ...) — that domain knowledge lives in per-resource packages
+that don't exist yet, built the same way `handler/widgets` is described in
+ADDING_ENDPOINTS.md.
 
 ---
 
