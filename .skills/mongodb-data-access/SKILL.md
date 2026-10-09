@@ -12,7 +12,6 @@ description: >
   including the upcoming auth resources (`users`, `auth_identities`,
   `sessions`, `email_verification_tokens`, `password_reset_tokens`).
   Prefer this skill over hand-rolling raw `mongo-driver` calls.
-
 ---
 
 # MongoDB Data Access
@@ -47,10 +46,10 @@ server/
 │   ├── mongo.go     ← connection lifecycle: New, Ping, Disconnect, Database, Collection
 │   └── errors.go    ← ErrNotFound, ErrConflict, TranslateError
 ├── repository/
-│   ├── primitives.go ← shared types and generic CRUD primitives
-│   ├── standard.go   ← lightweight Repository[T, PT] and New
-│   ├── audited.go   ← AuditedRepository[T, PT] and NewAudited
-│   └── index.go               ← EnsureIndexes + IndexProvider, called once at startup
+│   ├── primitives.go ← shared types, generic CRUD primitives, and primitive-adjacent API methods
+│   ├── standard.go   ← lightweight Repository[T, PT] struct and New
+│   ├── audited.go    ← AuditedRepository[T, PT], NewAudited, and audited document types
+│   └── index.go      ← EnsureIndexes + IndexProvider, called once at startup
 └── handler/<resource>/ ← where a resource's handlers live (see add-server-endpoint skill)
 ```
 
@@ -200,10 +199,10 @@ existing `mongoClient`/`mongoDB` setup, and gets passed down to
 
 ## Repository primitive reference
 
-Keep shared repository mechanics in `primitives.go`. The lightweight public
-`Repository` API belongs in `standard.go`, and the audit-aware
-`AuditedRepository` API belongs in `audited.go`; keep each
-constructor, struct, and associated methods together in its respective file.
+Keep shared repository mechanics and the public adapter methods in
+`primitives.go`, colocated with the base primitive each method delegates to.
+Keep the `Repository` and `AuditedRepository` structs and their constructors
+in their respective files, along with the audited document types.
 
 Every method takes `context.Context` first and applies its own bounded
 timeout (`repository.DefaultOperationTimeout`, 5s by default) —
@@ -213,16 +212,16 @@ a connection open for the full request lifetime.
 `Repository` and `AuditedRepository` expose the same CRUD surface, with
 slightly different write and filtering guarantees:
 
-| Method | Does | Lightweight `Repository` | `AuditedRepository` |
-|---|---|---|---|
-| `InsertOne(ctx, doc)` | Insert a new document | Populates `_id` | Populates `_id`, `created_at`, and `updated_at` |
-| `FindByID(ctx, id)` | Look up by hex ObjectID | Returns `esmongo.ErrNotFound` for malformed IDs and misses | Same, excluding soft-deleted documents |
-| `Find(ctx, filter)` | Query all matching documents | Standard non-paginated fetch | Fetch excludes soft-deleted documents |
-| `FindPage(ctx, filter, afterID, pageSize)` | Query a page | Cursor-based (`_id > afterID`, sorted ascending), capped at `MaxPageSize` | Same, excluding soft-deleted documents |
-| `UpdateOne(ctx, id, fields)` | Partial update via `$set` | Does not modify audit fields | Bumps `updated_at`; returns `ErrNotFound` on no match |
-| `DeleteOne(ctx, id)` | Delete a document | Permanent delete | Soft delete via `deleted_at`; reads and updates exclude it |
-| `HardDelete(ctx, id)` | Permanent delete | Same as `DeleteOne` | Bypasses the soft-delete marker |
-| `Count(ctx, filter)` / `Exists(ctx, filter)` | Aggregate checks | Counts matching documents | Counts matching non-deleted documents |
+| Method                                       | Does                         | Lightweight `Repository`                                                  | `AuditedRepository`                                        |
+| -------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `InsertOne(ctx, doc)`                        | Insert a new document        | Populates `_id`                                                           | Populates `_id`, `created_at`, and `updated_at`            |
+| `FindByID(ctx, id)`                          | Look up by hex ObjectID      | Returns `esmongo.ErrNotFound` for malformed IDs and misses                | Same, excluding soft-deleted documents                     |
+| `Find(ctx, filter)`                          | Query all matching documents | Standard non-paginated fetch                                              | Fetch excludes soft-deleted documents                      |
+| `FindPage(ctx, filter, afterID, pageSize)`   | Query a page                 | Cursor-based (`_id > afterID`, sorted ascending), capped at `MaxPageSize` | Same, excluding soft-deleted documents                     |
+| `UpdateOne(ctx, id, fields)`                 | Partial update via `$set`    | Does not modify audit fields                                              | Bumps `updated_at`; returns `ErrNotFound` on no match      |
+| `DeleteOne(ctx, id)`                         | Delete a document            | Permanent delete                                                          | Soft delete via `deleted_at`; reads and updates exclude it |
+| `HardDelete(ctx, id)`                        | Permanent delete             | Same as `DeleteOne`                                                       | Bypasses the soft-delete marker                            |
+| `Count(ctx, filter)` / `Exists(ctx, filter)` | Aggregate checks             | Counts matching documents                                                 | Counts matching non-deleted documents                      |
 
 Both variants return translated Mongo errors and apply the bounded operation
 timeout. Filters must still be built from typed parameters inside the resource
