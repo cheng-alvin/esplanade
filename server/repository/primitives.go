@@ -37,30 +37,6 @@ type Document interface {
 	GetID() bson.ObjectID
 }
 
-// Auditable is implemented by documents that support repository-managed audit
-// timestamps. It embeds Document, so every auditable document also satisfies
-// the ID contract required by repository operations.
-type Auditable interface {
-	Document
-	SetCreatedAt(time.Time)
-	SetUpdatedAt(time.Time)
-}
-
-// AuditedDocument is a descriptive alias for Auditable.
-type AuditedDocument = Auditable
-
-type Base struct {
-	ID        bson.ObjectID `bson:"_id,omitempty"`
-	CreatedAt time.Time     `bson:"created_at"`
-	UpdatedAt time.Time     `bson:"updated_at"`
-	DeletedAt *time.Time    `bson:"deleted_at,omitempty"`
-}
-
-func (b *Base) SetID(id bson.ObjectID)   { b.ID = id }
-func (b *Base) GetID() bson.ObjectID     { return b.ID }
-func (b *Base) SetCreatedAt(t time.Time) { b.CreatedAt = t }
-func (b *Base) SetUpdatedAt(t time.Time) { b.UpdatedAt = t }
-
 // repository contains the CRUD mechanics shared by Repository and
 // AuditedRepository. The exported wrappers choose whether filters are scoped
 // to non-deleted documents and whether writes manage audit timestamps.
