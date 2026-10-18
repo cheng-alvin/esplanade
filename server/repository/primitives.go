@@ -55,8 +55,27 @@ type RepositoryOperations[PT any] interface {
 	// Audited repositories exclude soft-deleted documents.
 	FindPage(ctx context.Context, filter bson.M, afterID string, pageSize int) (FindResult[PT], error)
 	UpdateOne(ctx context.Context, id string, fields bson.M) error
+
+	// UpdateOneWithUnset applies $set fields (may be nil or empty) and $unset
+	// field names in a single atomic update against the document with the
+	// given hex ID. Audited repositories bump updated_at. A malformed ID or
+	// missing document returns esmongo.ErrNotFound; an update with nothing to
+	// apply is a no-op.
+	UpdateOneWithUnset(ctx context.Context, id string, fields bson.M, unset []string) error
+
+	// UpdateMany applies $set fields to every document matching filter and
+	// returns the number of matched documents. Audited repositories scope the
+	// filter to non-deleted documents and bump updated_at.
+	UpdateMany(ctx context.Context, filter bson.M, fields bson.M) (int64, error)
+
 	DeleteOne(ctx context.Context, id string) error
 	HardDelete(ctx context.Context, id string) error
+
+	// DeleteMany permanently deletes every document matching filter and
+	// returns the number of deleted documents. Like HardDelete, it ignores
+	// the soft-delete marker on audited repositories.
+	DeleteMany(ctx context.Context, filter bson.M) (int64, error)
+
 	Count(ctx context.Context, filter bson.M) (int64, error)
 	Exists(ctx context.Context, filter bson.M) (bool, error)
 }
@@ -287,6 +306,86 @@ func (r *AuditedRepository[T, PT]) UpdateOne(ctx context.Context, id string, fie
 	})
 }
 
+func (r *repository[T, PT]) updateOneWithUnset(ctx context.Context, id string, fields bson.M, unset []string, scope filterScope, updateFields func(bson.M)) error {
+	oid, err := bson.ObjectIDFromHex(id)
+	if err != nil {
+		return esmongo.ErrNotFound
+	}
+
+	update := bson.M{}
+	if len(fields) > 0 || updateFields != nil {
+		set := make(bson.M, len(fields)+1)
+		for k, v := range fields {
+			set[k] = v
+		}
+		if updateFields != nil {
+			updateFields(set)
+		}
+		update["$set"] = set
+	}
+	if len(unset) > 0 {
+		names := make(bson.M, len(unset))
+		for _, name := range unset {
+			names[name] = ""
+		}
+		update["$unset"] = names
+	}
+	if len(update) == 0 {
+		return nil
+	}
+
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	res, err := r.collection.UpdateOne(ctx, scope(bson.M{"_id": oid}), update)
+	if err != nil {
+		return esmongo.TranslateError(err)
+	}
+	if res.MatchedCount == 0 {
+		return esmongo.ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repository[T, PT]) UpdateOneWithUnset(ctx context.Context, id string, fields bson.M, unset []string) error {
+	return r.base.updateOneWithUnset(ctx, id, fields, unset, unscoped, nil)
+}
+
+func (r *AuditedRepository[T, PT]) UpdateOneWithUnset(ctx context.Context, id string, fields bson.M, unset []string) error {
+	return r.base.updateOneWithUnset(ctx, id, fields, unset, scoped, func(set bson.M) {
+		set["updated_at"] = time.Now().UTC()
+	})
+}
+
+func (r *repository[T, PT]) updateMany(ctx context.Context, filter bson.M, fields bson.M, scope filterScope, updateFields func(bson.M)) (int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	set := make(bson.M, len(fields)+1)
+	for k, v := range fields {
+		set[k] = v
+	}
+	if updateFields != nil {
+		updateFields(set)
+	}
+
+	res, err := r.collection.UpdateMany(ctx, scope(filter), bson.M{"$set": set})
+	if err != nil {
+		return 0, esmongo.TranslateError(err)
+	}
+	return res.MatchedCount, nil
+}
+
+func (r *Repository[T, PT]) UpdateMany(ctx context.Context, filter bson.M, fields bson.M) (int64, error) {
+	return r.base.updateMany(ctx, filter, fields, unscoped, nil)
+}
+
+func (r *AuditedRepository[T, PT]) UpdateMany(ctx context.Context, filter bson.M, fields bson.M) (int64, error) {
+	return r.base.updateMany(ctx, filter, fields, scoped, func(set bson.M) {
+		set["updated_at"] = time.Now().UTC()
+	})
+}
+
 func (r *repository[T, PT]) deleteOne(ctx context.Context, id string) error {
 	oid, err := bson.ObjectIDFromHex(id)
 	if err != nil {
@@ -347,6 +446,25 @@ func (r *Repository[T, PT]) HardDelete(ctx context.Context, id string) error {
 
 func (r *AuditedRepository[T, PT]) HardDelete(ctx context.Context, id string) error {
 	return r.base.hardDelete(ctx, id)
+}
+
+func (r *repository[T, PT]) deleteMany(ctx context.Context, filter bson.M, scope filterScope) (int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	res, err := r.collection.DeleteMany(ctx, scope(filter))
+	if err != nil {
+		return 0, esmongo.TranslateError(err)
+	}
+	return res.DeletedCount, nil
+}
+
+func (r *Repository[T, PT]) DeleteMany(ctx context.Context, filter bson.M) (int64, error) {
+	return r.base.deleteMany(ctx, filter, unscoped)
+}
+
+func (r *AuditedRepository[T, PT]) DeleteMany(ctx context.Context, filter bson.M) (int64, error) {
+	return r.base.deleteMany(ctx, filter, unscoped)
 }
 
 func (r *repository[T, PT]) count(ctx context.Context, filter bson.M, scope filterScope) (int64, error) {
