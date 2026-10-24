@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	authrepo "github.com/cheng-alvin/esplanade/server/auth/repository"
 	"github.com/cheng-alvin/esplanade/server/config"
 	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
 	"github.com/cheng-alvin/esplanade/server/devices"
@@ -48,7 +49,7 @@ func main() {
 	mongoDB := esmongo.Database(mongoClient, cfg.MongoDatabase)
 
 	indexCtx, indexCancel := context.WithTimeout(context.Background(), repository.DefaultOperationTimeout)
-	if err = repository.EnsureIndexes(indexCtx, mongoDB, devices.Device{}); err != nil {
+	if err = repository.EnsureIndexes(indexCtx, mongoDB, devices.Device{}, authrepo.User{}, authrepo.Session{}, authrepo.PasswordResetToken{}); err != nil {
 		logger.Fatal("ensuring mongo indexes", zap.Error(err))
 	}
 	indexCancel()
