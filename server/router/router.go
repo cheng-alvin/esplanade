@@ -53,6 +53,9 @@ func New(mongoClient *mongo.Client, auth AuthDeps) *http.ServeMux {
 
 		mux.Handle("GET /api/v1/auth/identities", authmw.RequireAuth(auth.Verifier)(authh.Identities(auth.Service)))
 		mux.Handle("DELETE /api/v1/auth/providers/{provider}", authmw.RequireAuth(auth.Verifier)(authh.UnlinkProvider(auth.Service)))
+
+		mux.HandleFunc("POST /api/v1/auth/google", authh.GoogleLogin(auth.Service))
+		mux.Handle("POST /api/v1/auth/link/google", authmw.RequireAuth(auth.Verifier)(authh.LinkGoogle(auth.Service)))
 	}
 
 	return mux
