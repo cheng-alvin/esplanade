@@ -11,6 +11,7 @@ import (
 
 	"github.com/cheng-alvin/esplanade/server/config"
 	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
+	"github.com/cheng-alvin/esplanade/server/devices"
 	"github.com/cheng-alvin/esplanade/server/logging"
 	"github.com/cheng-alvin/esplanade/server/middleware"
 	"github.com/cheng-alvin/esplanade/server/repository"
@@ -47,7 +48,7 @@ func main() {
 	mongoDB := esmongo.Database(mongoClient, cfg.MongoDatabase)
 
 	indexCtx, indexCancel := context.WithTimeout(context.Background(), repository.DefaultOperationTimeout)
-	if err = repository.EnsureIndexes(indexCtx, mongoDB); err != nil {
+	if err = repository.EnsureIndexes(indexCtx, mongoDB, devices.Device{}); err != nil {
 		logger.Fatal("ensuring mongo indexes", zap.Error(err))
 	}
 	indexCancel()
