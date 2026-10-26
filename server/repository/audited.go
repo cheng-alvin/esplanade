@@ -39,7 +39,7 @@ type AuditedRepository[T any, PT interface {
 	*T
 	Auditable
 }] struct {
-	base *repository[T, PT]
+	*repository[T, PT]
 }
 
 // NewAudited returns an audit-aware repository backed by collection. timeout
@@ -49,5 +49,15 @@ func NewAudited[T any, PT interface {
 	*T
 	Auditable
 }](collection *mongo.Collection, timeout time.Duration) *AuditedRepository[T, PT] {
-	return &AuditedRepository[T, PT]{base: newRepository[T, PT](collection, timeout)}
+	return &AuditedRepository[T, PT]{
+		repository: newRepository[T, PT](collection, timeout, repositoryConfig[T, PT]{
+			scope: scoped,
+			initialize: func(doc PT, now time.Time) {
+				doc.SetCreatedAt(now)
+				doc.SetUpdatedAt(now)
+			},
+			updateFields: setUpdatedAt,
+			softDelete:   true,
+		}),
+	}
 }

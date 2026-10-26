@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
@@ -13,59 +14,51 @@ import (
 )
 
 const (
-	// DefaultPageSize is used by FindPage when the caller requests a page
-	// size of zero or less.
+	// DefaultPageSize is the page size FindPage uses when the caller
+	// requests zero or a negative size.
 	DefaultPageSize = 50
 
-	// MaxPageSize is the hard upper bound on documents returned by a
-	// single FindPage call, regardless of what the caller requests. This
-	// exists so a buggy or malicious client cannot force an unbounded
-	// paginated request.
+	// MaxPageSize caps a single FindPage call so a buggy or malicious
+	// client cannot request an unbounded page.
 	MaxPageSize = 200
 
-	// DefaultOperationTimeout bounds an individual Mongo operation. An
-	// HTTP request timeout and a database operation timeout are
-	// different concerns — a slow query should not be able to hold a
-	// connection open for the full request lifetime.
+	// DefaultOperationTimeout bounds one Mongo operation. It is separate
+	// from the request timeout on purpose: a slow query must not tie up a
+	// connection for the request's full lifetime.
 	DefaultOperationTimeout = 5 * time.Second
 )
 
-// Document is the minimum contract required by Repository. The repository
-// owns Mongo IDs, while the document owns the way that ID is represented.
+// Document is the minimum contract for a repository document: the repository
+// assigns Mongo ObjectIDs, the document decides how to store them.
 type Document interface {
 	SetID(bson.ObjectID)
 	ID() bson.ObjectID
 }
 
-// RepositoryOperations is the shared CRUD surface implemented by standard and
-// audited repositories. All methods apply the repository operation timeout to
-// ctx.
+type documentPtr[T any] interface {
+	*T
+	Document
+}
+
+// RepositoryOperations is the shared CRUD surface implemented by Repository
+// and AuditedRepository. Every method applies the repository operation timeout
+// to ctx.
 type RepositoryOperations[PT any] interface {
 	InsertOne(ctx context.Context, doc PT) error
 	FindByID(ctx context.Context, id string) (PT, error)
 	Find(ctx context.Context, filter bson.M) ([]PT, error)
 
-	// FindPage returns a cursor-paginated result matching filter, ordered by
-	// ascending _id.
-	//
-	// - filter: resource-built filter from typed parameters.
-	// - afterID: optional hex-encoded ObjectID cursor; empty starts at the beginning.
-	// - pageSize: defaults to DefaultPageSize when zero or negative and is capped at MaxPageSize.
-	//
-	// Audited repositories exclude soft-deleted documents.
-	FindPage(ctx context.Context, filter bson.M, afterID string, pageSize int) (FindResult[PT], error)
 	UpdateOne(ctx context.Context, id string, fields bson.M) error
 
-	// UpdateOneWithUnset applies $set fields (may be nil or empty) and $unset
-	// field names in a single atomic update against the document with the
-	// given hex ID. Audited repositories bump updated_at. A malformed ID or
-	// missing document returns esmongo.ErrNotFound; an update with nothing to
-	// apply is a no-op.
+	// UpdateOneWithUnset applies $set fields (possibly nil or empty) and
+	// $unset field names in one atomic update. A malformed ID or missing
+	// document returns esmongo.ErrNotFound; an update with nothing to
+	// apply is a no-op. Audited repositories bump updated_at.
 	UpdateOneWithUnset(ctx context.Context, id string, fields bson.M, unset []string) error
 
 	// UpdateMany applies $set fields to every document matching filter and
-	// returns the number of matched documents. Audited repositories scope the
-	// filter to non-deleted documents and bump updated_at.
+	// returns the number of matched documents. Audited repositories scope
+	// the filter to non-deleted documents and bump updated_at.
 	UpdateMany(ctx context.Context, filter bson.M, fields bson.M) (int64, error)
 
 	DeleteOne(ctx context.Context, id string) error
@@ -78,61 +71,82 @@ type RepositoryOperations[PT any] interface {
 
 	Count(ctx context.Context, filter bson.M) (int64, error)
 	Exists(ctx context.Context, filter bson.M) (bool, error)
+
+	// FindPage returns a cursor-paginated result matching filter, ordered
+	// by ascending _id. An empty afterID starts at the beginning; pageSize
+	// defaults to DefaultPageSize and is capped at MaxPageSize. Audited
+	// repositories exclude soft-deleted documents.
+	FindPage(ctx context.Context, filter bson.M, afterID string, pageSize int) (FindResult[PT], error)
 }
 
-// repository contains the CRUD mechanics shared by Repository and
-// AuditedRepository. The exported wrappers choose whether filters are scoped
-// to non-deleted documents and whether writes manage audit timestamps.
-type repository[T any, PT interface {
-	*T
-	Document
-}] struct {
+type filterScope func(bson.M) bson.M
+
+// deletedAtUnset matches documents that have not been soft-deleted.
+var deletedAtUnset = bson.M{"$exists": false}
+
+// clone copies m, returning a non-nil map so callers can add to it without
+// mutating the original.
+func clone(m bson.M) bson.M {
+	out := maps.Clone(m)
+	if out == nil {
+		out = bson.M{}
+	}
+	return out
+}
+
+func unscoped(filter bson.M) bson.M { return clone(filter) }
+
+func scoped(filter bson.M) bson.M {
+	q := clone(filter)
+	q["deleted_at"] = deletedAtUnset
+	return q
+}
+
+// repositoryConfig captures the only ways Repository and AuditedRepository
+// differ: which documents reads and writes touch, the audit fields stamped on
+// writes, and whether DeleteOne soft-deletes.
+type repositoryConfig[T any, PT documentPtr[T]] struct {
+	scope        filterScope
+	initialize   func(PT, time.Time)
+	updateFields func(bson.M)
+	softDelete   bool
+}
+
+// repository implements the full RepositoryOperations surface once. Repository
+// and AuditedRepository embed it anonymously, so these methods are promoted
+// onto both types as if declared on each; the config passed to newRepository
+// selects the lightweight or audit-aware behaviour.
+type repository[T any, PT documentPtr[T]] struct {
 	collection *mongo.Collection
 	timeout    time.Duration
+	config     repositoryConfig[T, PT]
 }
 
-func newRepository[T any, PT interface {
-	*T
-	Document
-}](collection *mongo.Collection, timeout time.Duration) *repository[T, PT] {
+func newRepository[T any, PT documentPtr[T]](
+	collection *mongo.Collection,
+	timeout time.Duration,
+	config repositoryConfig[T, PT],
+) *repository[T, PT] {
 	if timeout <= 0 {
 		timeout = DefaultOperationTimeout
 	}
-	return &repository[T, PT]{collection: collection, timeout: timeout}
+	if config.scope == nil {
+		config.scope = unscoped
+	}
+	return &repository[T, PT]{collection: collection, timeout: timeout, config: config}
 }
 
 func (r *repository[T, PT]) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, r.timeout)
 }
 
-type filterScope func(bson.M) bson.M
-
-func unscoped(filter bson.M) bson.M {
-	q := make(bson.M, len(filter))
-	for k, v := range filter {
-		q[k] = v
-	}
-	return q
-}
-
-// deletedAtUnset is the filter fragment excluding soft-deleted
-// documents. It is composed into every read and update the audited
-// repository performs by default.
-var deletedAtUnset = bson.M{"$exists": false}
-
-func scoped(filter bson.M) bson.M {
-	q := unscoped(filter)
-	q["deleted_at"] = deletedAtUnset
-	return q
-}
-
-func (r *repository[T, PT]) insertOne(ctx context.Context, doc PT, initialize func(PT, time.Time)) error {
+func (r *repository[T, PT]) InsertOne(ctx context.Context, doc PT) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
 	doc.SetID(bson.NewObjectID())
-	if initialize != nil {
-		initialize(doc, time.Now().UTC())
+	if r.config.initialize != nil {
+		r.config.initialize(doc, time.Now().UTC())
 	}
 
 	if _, err := r.collection.InsertOne(ctx, doc); err != nil {
@@ -141,18 +155,7 @@ func (r *repository[T, PT]) insertOne(ctx context.Context, doc PT, initialize fu
 	return nil
 }
 
-func (r *Repository[T, PT]) InsertOne(ctx context.Context, doc PT) error {
-	return r.base.insertOne(ctx, doc, nil)
-}
-
-func (r *AuditedRepository[T, PT]) InsertOne(ctx context.Context, doc PT) error {
-	return r.base.insertOne(ctx, doc, func(doc PT, now time.Time) {
-		doc.SetCreatedAt(now)
-		doc.SetUpdatedAt(now)
-	})
-}
-
-func (r *repository[T, PT]) findByID(ctx context.Context, id string, scope filterScope) (PT, error) {
+func (r *repository[T, PT]) FindByID(ctx context.Context, id string) (PT, error) {
 	oid, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		return nil, esmongo.ErrNotFound
@@ -161,28 +164,19 @@ func (r *repository[T, PT]) findByID(ctx context.Context, id string, scope filte
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	filter := scope(bson.M{"_id": oid})
-
 	var doc T
-	if err := r.collection.FindOne(ctx, filter).Decode(&doc); err != nil {
+	target := r.collection.FindOne(ctx, r.config.scope(bson.M{"_id": oid}))
+	if err := target.Decode(&doc); err != nil {
 		return nil, esmongo.TranslateError(err)
 	}
 	return PT(&doc), nil
 }
 
-func (r *Repository[T, PT]) FindByID(ctx context.Context, id string) (PT, error) {
-	return r.base.findByID(ctx, id, unscoped)
-}
-
-func (r *AuditedRepository[T, PT]) FindByID(ctx context.Context, id string) (PT, error) {
-	return r.base.findByID(ctx, id, scoped)
-}
-
-func (r *repository[T, PT]) find(ctx context.Context, filter bson.M, scope filterScope) ([]PT, error) {
+func (r *repository[T, PT]) Find(ctx context.Context, filter bson.M) ([]PT, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	cursor, err := r.collection.Find(ctx, scope(filter))
+	cursor, err := r.collection.Find(ctx, r.config.scope(filter))
 	if err != nil {
 		return nil, esmongo.TranslateError(err)
 	}
@@ -193,40 +187,36 @@ func (r *repository[T, PT]) find(ctx context.Context, filter bson.M, scope filte
 	return items, nil
 }
 
-func (r *Repository[T, PT]) Find(ctx context.Context, filter bson.M) ([]PT, error) {
-	return r.base.find(ctx, filter, unscoped)
-}
-
-func (r *AuditedRepository[T, PT]) Find(ctx context.Context, filter bson.M) ([]PT, error) {
-	return r.base.find(ctx, filter, scoped)
-}
-
-// FindResult is the page returned by FindPage: the matched documents plus
-// a cursor for fetching the next page, if any.
+// FindResult is the page returned by FindPage: the matched documents plus a
+// cursor for fetching the next page, if any.
 type FindResult[PT any] struct {
 	Items []PT
 
-	// NextCursor is the hex ObjectID to pass as afterID to fetch the
-	// next page. It is empty when there is no further page.
+	// NextCursor is the hex ObjectID to pass as afterID to fetch the next
+	// page. It is empty when there is no further page.
 	NextCursor string
 }
 
-func (r *repository[T, PT]) findPage(ctx context.Context, filter bson.M, afterID string, pageSize int, scope filterScope) (FindResult[PT], error) {
+func (r *repository[T, PT]) FindPage(
+	ctx context.Context,
+	filter bson.M,
+	afterID string,
+	pageSize int,
+) (FindResult[PT], error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	switch {
-	case pageSize <= 0:
+	if pageSize <= 0 {
 		pageSize = DefaultPageSize
-	case pageSize > MaxPageSize:
-		pageSize = MaxPageSize
 	}
+	pageSize = min(pageSize, MaxPageSize)
 
-	q := scope(filter)
+	q := r.config.scope(filter)
 	if afterID != "" {
 		oid, err := bson.ObjectIDFromHex(afterID)
 		if err != nil {
-			return FindResult[PT]{}, fmt.Errorf("repository: invalid cursor %q: %w", afterID, err)
+			return FindResult[PT]{},
+				fmt.Errorf("repository: invalid cursor %q: %w", afterID, err)
 		}
 		q["_id"] = bson.M{"$gt": oid}
 	}
@@ -245,7 +235,8 @@ func (r *repository[T, PT]) findPage(ctx context.Context, filter bson.M, afterID
 	for cursor.Next(ctx) {
 		var doc T
 		if err := cursor.Decode(&doc); err != nil {
-			return FindResult[PT]{}, fmt.Errorf("repository: decoding document: %w", err)
+			return FindResult[PT]{},
+				fmt.Errorf("repository: decoding document: %w", err)
 		}
 		items = append(items, PT(&doc))
 	}
@@ -260,15 +251,24 @@ func (r *repository[T, PT]) findPage(ctx context.Context, filter bson.M, afterID
 	return result, nil
 }
 
-func (r *Repository[T, PT]) FindPage(ctx context.Context, filter bson.M, afterID string, pageSize int) (FindResult[PT], error) {
-	return r.base.findPage(ctx, filter, afterID, pageSize, unscoped)
+func setUpdatedAt(set bson.M) {
+	set["updated_at"] = time.Now().UTC()
 }
 
-func (r *AuditedRepository[T, PT]) FindPage(ctx context.Context, filter bson.M, afterID string, pageSize int) (FindResult[PT], error) {
-	return r.base.findPage(ctx, filter, afterID, pageSize, scoped)
+func buildSet(fields bson.M, updateFields func(bson.M)) bson.M {
+	set := clone(fields)
+	if updateFields != nil {
+		updateFields(set)
+	}
+	return set
 }
 
-func (r *repository[T, PT]) updateOne(ctx context.Context, id string, fields bson.M, scope filterScope, updateFields func(bson.M)) error {
+func (r *repository[T, PT]) updateOne(
+	ctx context.Context,
+	id string,
+	fields bson.M,
+	updateFields func(bson.M),
+) error {
 	oid, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		return esmongo.ErrNotFound
@@ -277,16 +277,8 @@ func (r *repository[T, PT]) updateOne(ctx context.Context, id string, fields bso
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	set := make(bson.M, len(fields)+1)
-	for k, v := range fields {
-		set[k] = v
-	}
-	if updateFields != nil {
-		updateFields(set)
-	}
-
-	filter := scope(bson.M{"_id": oid})
-	res, err := r.collection.UpdateOne(ctx, filter, bson.M{"$set": set})
+	update := bson.M{"$set": buildSet(fields, updateFields)}
+	res, err := r.collection.UpdateOne(ctx, r.config.scope(bson.M{"_id": oid}), update)
 	if err != nil {
 		return esmongo.TranslateError(err)
 	}
@@ -296,32 +288,24 @@ func (r *repository[T, PT]) updateOne(ctx context.Context, id string, fields bso
 	return nil
 }
 
-func (r *Repository[T, PT]) UpdateOne(ctx context.Context, id string, fields bson.M) error {
-	return r.base.updateOne(ctx, id, fields, unscoped, nil)
+func (r *repository[T, PT]) UpdateOne(ctx context.Context, id string, fields bson.M) error {
+	return r.updateOne(ctx, id, fields, r.config.updateFields)
 }
 
-func (r *AuditedRepository[T, PT]) UpdateOne(ctx context.Context, id string, fields bson.M) error {
-	return r.base.updateOne(ctx, id, fields, scoped, func(set bson.M) {
-		set["updated_at"] = time.Now().UTC()
-	})
-}
-
-func (r *repository[T, PT]) updateOneWithUnset(ctx context.Context, id string, fields bson.M, unset []string, scope filterScope, updateFields func(bson.M)) error {
+func (r *repository[T, PT]) UpdateOneWithUnset(
+	ctx context.Context,
+	id string,
+	fields bson.M,
+	unset []string,
+) error {
 	oid, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		return esmongo.ErrNotFound
 	}
 
 	update := bson.M{}
-	if len(fields) > 0 || updateFields != nil {
-		set := make(bson.M, len(fields)+1)
-		for k, v := range fields {
-			set[k] = v
-		}
-		if updateFields != nil {
-			updateFields(set)
-		}
-		update["$set"] = set
+	if len(fields) > 0 || r.config.updateFields != nil {
+		update["$set"] = buildSet(fields, r.config.updateFields)
 	}
 	if len(unset) > 0 {
 		names := make(bson.M, len(unset))
@@ -337,7 +321,7 @@ func (r *repository[T, PT]) updateOneWithUnset(ctx context.Context, id string, f
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	res, err := r.collection.UpdateOne(ctx, scope(bson.M{"_id": oid}), update)
+	res, err := r.collection.UpdateOne(ctx, r.config.scope(bson.M{"_id": oid}), update)
 	if err != nil {
 		return esmongo.TranslateError(err)
 	}
@@ -347,43 +331,20 @@ func (r *repository[T, PT]) updateOneWithUnset(ctx context.Context, id string, f
 	return nil
 }
 
-func (r *Repository[T, PT]) UpdateOneWithUnset(ctx context.Context, id string, fields bson.M, unset []string) error {
-	return r.base.updateOneWithUnset(ctx, id, fields, unset, unscoped, nil)
-}
-
-func (r *AuditedRepository[T, PT]) UpdateOneWithUnset(ctx context.Context, id string, fields bson.M, unset []string) error {
-	return r.base.updateOneWithUnset(ctx, id, fields, unset, scoped, func(set bson.M) {
-		set["updated_at"] = time.Now().UTC()
-	})
-}
-
-func (r *repository[T, PT]) updateMany(ctx context.Context, filter bson.M, fields bson.M, scope filterScope, updateFields func(bson.M)) (int64, error) {
+func (r *repository[T, PT]) UpdateMany(
+	ctx context.Context,
+	filter bson.M,
+	fields bson.M,
+) (int64, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	set := make(bson.M, len(fields)+1)
-	for k, v := range fields {
-		set[k] = v
-	}
-	if updateFields != nil {
-		updateFields(set)
-	}
-
-	res, err := r.collection.UpdateMany(ctx, scope(filter), bson.M{"$set": set})
+	update := bson.M{"$set": buildSet(fields, r.config.updateFields)}
+	res, err := r.collection.UpdateMany(ctx, r.config.scope(filter), update)
 	if err != nil {
 		return 0, esmongo.TranslateError(err)
 	}
 	return res.MatchedCount, nil
-}
-
-func (r *Repository[T, PT]) UpdateMany(ctx context.Context, filter bson.M, fields bson.M) (int64, error) {
-	return r.base.updateMany(ctx, filter, fields, unscoped, nil)
-}
-
-func (r *AuditedRepository[T, PT]) UpdateMany(ctx context.Context, filter bson.M, fields bson.M) (int64, error) {
-	return r.base.updateMany(ctx, filter, fields, scoped, func(set bson.M) {
-		set["updated_at"] = time.Now().UTC()
-	})
 }
 
 func (r *repository[T, PT]) deleteOne(ctx context.Context, id string) error {
@@ -405,106 +366,53 @@ func (r *repository[T, PT]) deleteOne(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *Repository[T, PT]) DeleteOne(ctx context.Context, id string) error {
-	return r.base.deleteOne(ctx, id)
-}
-
-func (r *repository[T, PT]) softDeleteOne(ctx context.Context, id string, scope filterScope) error {
-	oid, err := bson.ObjectIDFromHex(id)
-	if err != nil {
-		return esmongo.ErrNotFound
+// DeleteOne permanently removes a lightweight document, or soft-deletes an
+// audit-aware one by stamping deleted_at.
+func (r *repository[T, PT]) DeleteOne(ctx context.Context, id string) error {
+	if r.config.softDelete {
+		now := time.Now().UTC()
+		return r.updateOne(ctx, id, bson.M{"deleted_at": now, "updated_at": now}, nil)
 	}
-
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-
-	now := time.Now().UTC()
-	filter := scope(bson.M{"_id": oid})
-	update := bson.M{"$set": bson.M{"deleted_at": now, "updated_at": now}}
-
-	res, err := r.collection.UpdateOne(ctx, filter, update)
-	if err != nil {
-		return esmongo.TranslateError(err)
-	}
-	if res.MatchedCount == 0 {
-		return esmongo.ErrNotFound
-	}
-	return nil
-}
-
-func (r *AuditedRepository[T, PT]) DeleteOne(ctx context.Context, id string) error {
-	return r.base.softDeleteOne(ctx, id, scoped)
-}
-
-func (r *repository[T, PT]) hardDelete(ctx context.Context, id string) error {
 	return r.deleteOne(ctx, id)
 }
 
-func (r *Repository[T, PT]) HardDelete(ctx context.Context, id string) error {
-	return r.base.hardDelete(ctx, id)
+func (r *repository[T, PT]) HardDelete(ctx context.Context, id string) error {
+	return r.deleteOne(ctx, id)
 }
 
-func (r *AuditedRepository[T, PT]) HardDelete(ctx context.Context, id string) error {
-	return r.base.hardDelete(ctx, id)
-}
-
-func (r *repository[T, PT]) deleteMany(ctx context.Context, filter bson.M, scope filterScope) (int64, error) {
+func (r *repository[T, PT]) DeleteMany(ctx context.Context, filter bson.M) (int64, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	res, err := r.collection.DeleteMany(ctx, scope(filter))
+	res, err := r.collection.DeleteMany(ctx, filter)
 	if err != nil {
 		return 0, esmongo.TranslateError(err)
 	}
 	return res.DeletedCount, nil
 }
 
-func (r *Repository[T, PT]) DeleteMany(ctx context.Context, filter bson.M) (int64, error) {
-	return r.base.deleteMany(ctx, filter, unscoped)
-}
-
-func (r *AuditedRepository[T, PT]) DeleteMany(ctx context.Context, filter bson.M) (int64, error) {
-	return r.base.deleteMany(ctx, filter, unscoped)
-}
-
-func (r *repository[T, PT]) count(ctx context.Context, filter bson.M, scope filterScope) (int64, error) {
+func (r *repository[T, PT]) Count(ctx context.Context, filter bson.M) (int64, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	count, err := r.collection.CountDocuments(ctx, scope(filter))
+	count, err := r.collection.CountDocuments(ctx, r.config.scope(filter))
 	if err != nil {
 		return 0, esmongo.TranslateError(err)
 	}
 	return count, nil
 }
 
-func (r *Repository[T, PT]) Count(ctx context.Context, filter bson.M) (int64, error) {
-	return r.base.count(ctx, filter, unscoped)
-}
-
-func (r *AuditedRepository[T, PT]) Count(ctx context.Context, filter bson.M) (int64, error) {
-	return r.base.count(ctx, filter, scoped)
-}
-
-func (r *repository[T, PT]) exists(ctx context.Context, filter bson.M, scope filterScope) (bool, error) {
+func (r *repository[T, PT]) Exists(ctx context.Context, filter bson.M) (bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
 	findOneOpts := options.FindOne().SetProjection(bson.M{"_id": 1})
-	err := r.collection.FindOne(ctx, scope(filter), findOneOpts).Err()
+	err := r.collection.FindOne(ctx, r.config.scope(filter), findOneOpts).Err()
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return false, nil
+	}
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return false, nil
-		}
 		return false, esmongo.TranslateError(err)
 	}
 	return true, nil
-}
-
-func (r *Repository[T, PT]) Exists(ctx context.Context, filter bson.M) (bool, error) {
-	return r.base.exists(ctx, filter, unscoped)
-}
-
-func (r *AuditedRepository[T, PT]) Exists(ctx context.Context, filter bson.M) (bool, error) {
-	return r.base.exists(ctx, filter, scoped)
 }

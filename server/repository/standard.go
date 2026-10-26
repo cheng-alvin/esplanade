@@ -17,7 +17,7 @@ type Repository[T any, PT interface {
 	*T
 	Document
 }] struct {
-	base *repository[T, PT]
+	*repository[T, PT]
 }
 
 // New returns a lightweight Repository backed by collection. timeout bounds
@@ -27,5 +27,7 @@ func New[T any, PT interface {
 	*T
 	Document
 }](collection *mongo.Collection, timeout time.Duration) *Repository[T, PT] {
-	return &Repository[T, PT]{base: newRepository[T, PT](collection, timeout)}
+	return &Repository[T, PT]{
+		repository: newRepository[T, PT](collection, timeout, repositoryConfig[T, PT]{scope: unscoped}),
+	}
 }
