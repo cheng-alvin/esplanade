@@ -84,21 +84,81 @@ local-first or E2E guarantees.
 
 ## Coding Style: Comments
 
-Comments are for information the code cannot express on its own — not a running
-narration of what the code does.
+Keep comments to a minimum. They exist for documentation and for the few cases below,
+not as a running narration of what the code does.
 
-- **Do not** add comments that restate what the next line obviously does (`// increment
-counter`, `// loop over items`).
-- **Do** comment non-obvious constraints: why a magic number is what it is, why an edge
-  case is handled a particular way, why a seemingly-simpler approach was rejected,
-  concurrency/ordering requirements that aren't visible from the source code itself.
-- If a comment would only explain _what_ is happening rather than _why_, it belongs in
-  the chat response to the user, a docs markdown file, or a relevant skill — not in
-  the source file.
+- **Documentation comments** (Go doc comments, Swift `///`) go on exported or public
+  declarations whose purpose, parameters, or behavior isn't clear from the signature.
+  Keep them short, and don't write one that only restates the name.
+- **In function bodies, comment only when:**
+  1. the code does something that isn't obvious from reading it (a hidden side effect,
+     an unusual edge case, a rejected simpler approach, or an ordering or concurrency
+     requirement), explaining _why_;
+  2. something is unfinished, marked with `TODO`; or
+  3. something is critically important, such as a constraint where a mistake would
+     cause a security flaw, data loss, or a hard-to-find bug.
+- **Do not** comment anything else, especially what the next line obviously does
+  (`// increment counter`, `// loop over items`).
+- Tooling directives (`//nolint`, `// MARK:`) are not commentary and are exempt.
+- If a comment would only explain _what_ is happening, it belongs in the chat response
+  to the user, a docs markdown file, or a relevant skill — not in the source file.
 - When editing existing code, remove drive-by explanatory comments that no longer earn
   their place; don't leave stale commentary behind.
 - Prefer making code self-explanatory (clear naming, small functions) over compensating
   with a comment.
+
+## Code Quality and Reviewability
+
+Every change an agent produces is read by a human reviewer. Write code that is clean,
+consistent, and easy to review, so the reviewer's time goes to design and correctness
+rather than style corrections. Treat every styling and convention guideline in this
+file (and in `.skills/`) as a requirement, not a suggestion.
+
+- **Follow all applicable guidelines.** Do not leave a convention for the reviewer to
+  enforce. If a change touches Go or Swift code, it must satisfy the matching
+  conventions section, the comment policy, and any relevant skill.
+- **Self-review before handing off.** Re-read the full diff as a reviewer would. Remove
+  dead code, unused imports, debug output, and leftover or stale commentary, and fix
+  any style violations before presenting the work.
+- **Write code already formatted.** Match standard formatting (`gofmt` for Go, standard
+  Swift style for Swift) as you write, so diffs contain only meaningful changes. This
+  does not require running a formatter; see Execution and Validation.
+- **Keep code concise.** Prefer short, direct lines and small functions. Wrap long
+  expressions instead of letting lines sprawl, and drop unnecessary variables, wrappers,
+  and abstraction layers. Concise does not mean cryptic: choose clarity over cleverness.
+- **Keep diffs focused.** Do not mix formatting churn, drive-by refactors, or unrelated
+  edits into a change. Anything outside the task's scope belongs in its own branch.
+- **Flag uncertainty instead of guessing.** If a requirement is ambiguous, or two
+  guidelines appear to conflict, say so in the chat response rather than silently
+  picking an interpretation.
+
+## Dependencies: Prefer Established Libraries
+
+Do not hand-roll functionality that an established library or the platform's own
+framework already provides. Agents can produce code that looks correct but is subtly
+wrong, especially in areas such as cryptography, parsing, encoding, concurrency
+primitives, networking protocols, and date/time handling. Mature dependencies have been
+widely tested and audited, and are far more trustworthy than freshly generated code.
+
+- **Look before you write.** Before implementing any non-trivial utility, check in this
+  order: the language's standard library, the platform's frameworks (e.g. Go's standard
+  library, Apple's CryptoKit and Network frameworks), then widely adopted third-party
+  libraries.
+- **Reuse what the project already depends on.** If an existing dependency (e.g. `zap`,
+  `uuid`, `yaml.v3`) covers the need, use it rather than adding a second library for the
+  same job.
+- **Vet every new dependency.** It should be actively maintained, widely adopted,
+  permissively licensed, and light on transitive dependencies. The Security Outlook
+  applies: never add a dependency that requires a proprietary cloud account or routes
+  data through third-party infrastructure, and flag any that weakens local-first or E2E
+  guarantees.
+- **Make additions visible.** Declare the dependency in `go.mod` or `Package.swift`, and
+  state its name, purpose, and why it was chosen over alternatives in the chat response
+  so the reviewer can evaluate it. Leave running `go mod tidy` or package resolution to
+  the human unless explicitly asked; see Execution and Validation.
+- **Hand-roll only with a reason.** Custom implementations are acceptable when no
+  suitable library exists, or when a dependency would be disproportionate to a few lines
+  of straightforward code. Say why in the chat response.
 
 ## Branching & PR Policy for Agent Output
 
