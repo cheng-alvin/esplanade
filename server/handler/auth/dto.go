@@ -38,6 +38,10 @@ type logoutRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+type resendRequest struct {
+	Email string `json:"email"`
+}
+
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
 		respond.ErrorCode(w, http.StatusBadRequest, "invalid_request", "invalid request body")
