@@ -6,10 +6,10 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	autherr "github.com/cheng-alvin/esplanade/server/auth/errors"
 	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
-	repository "github.com/cheng-alvin/esplanade/server/repository"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -22,7 +22,10 @@ const DeviceCollection = "devices"
 const maxIdentifierLength = 256
 
 type Device struct {
-	repository.Base `bson:",inline"`
+	ObjectID  bson.ObjectID `bson:"_id,omitempty"`
+	CreatedAt time.Time     `bson:"created_at"`
+	UpdatedAt time.Time     `bson:"updated_at"`
+	DeletedAt *time.Time    `bson:"deleted_at,omitempty"`
 
 	UserID     bson.ObjectID `bson:"user_id"`
 	Identifier string        `bson:"identifier"`
@@ -46,11 +49,11 @@ func ValidateIdentifier(raw string) (string, error) {
 }
 
 type Store struct {
-	repo *repository.AuditedRepository[Device, *Device]
+	collection *mongo.Collection
 }
 
 func NewStore(collection *mongo.Collection) *Store {
-	return &Store{repo: repository.NewAudited[Device](collection, 0)}
+	return &Store{collection: collection}
 }
 
 func (s *Store) FindOrRegister(ctx context.Context, userID bson.ObjectID, identifier string) (bson.ObjectID, error) {
@@ -59,29 +62,42 @@ func (s *Store) FindOrRegister(ctx context.Context, userID bson.ObjectID, identi
 		return bson.ObjectID{}, err
 	}
 
-	filter := bson.M{"user_id": userID, "identifier": identifier}
-
-	found, err := s.repo.Find(ctx, filter)
-	if err != nil {
-		return bson.ObjectID{}, err
-	}
-	if len(found) > 0 {
-		return found[0].ID(), nil
+	filter := bson.M{
+		"user_id":    userID,
+		"identifier": identifier,
+		"deleted_at": bson.M{"$exists": false},
 	}
 
-	device := &Device{UserID: userID, Identifier: identifier}
-	if err := s.repo.InsertOne(ctx, device); err != nil {
-		if errors.Is(err, esmongo.ErrConflict) {
+	var found Device
+	err = s.collection.FindOne(ctx, filter).Decode(&found)
+	if err == nil {
+		return found.ObjectID, nil
+	}
+	if !errors.Is(err, mongo.ErrNoDocuments) {
+		return bson.ObjectID{}, esmongo.TranslateError(err)
+	}
+
+	now := time.Now().UTC()
+	device := &Device{
+		ObjectID:   bson.NewObjectID(),
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		UserID:     userID,
+		Identifier: identifier,
+	}
+	if _, err := s.collection.InsertOne(ctx, device); err != nil {
+		translated := esmongo.TranslateError(err)
+		if errors.Is(translated, esmongo.ErrConflict) {
 			// A concurrent call registered the same (user_id, identifier)
 			// between the find and the insert; the unique index guarantees a
 			// single winner, so re-read and hand back its ID rather than
 			// surfacing a spurious conflict.
-			found, findErr := s.repo.Find(ctx, filter)
-			if findErr == nil && len(found) > 0 {
-				return found[0].ID(), nil
+			var existing Device
+			if err := s.collection.FindOne(ctx, filter).Decode(&existing); err == nil {
+				return existing.ObjectID, nil
 			}
 		}
-		return bson.ObjectID{}, err
+		return bson.ObjectID{}, translated
 	}
-	return device.ID(), nil
+	return device.ObjectID, nil
 }
