@@ -2,10 +2,9 @@
 // Esplanade server: client construction, health checks, and graceful
 // shutdown.
 //
-// Resource-specific query logic does not belong here — see the
-// repository package for the generic CRUD layer that sits on top of a
-// connected client, and per-resource packages for anything
-// domain-specific.
+// Resource-specific query logic does not belong here — domain packages
+// hold their own documents and query collections directly with the
+// mongo-driver.
 package mongo
 
 import (

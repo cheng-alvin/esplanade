@@ -145,7 +145,6 @@ server/
 │   └── widgets/widgets.go       ← example
 ├── logging/                     ← structured logger setup
 ├── middleware/                  ← request pipeline (auto-applied)
-├── repository/                  ← generic Mongo CRUD primitive (see docs/MONGODB.md)
 ├── respond/                     ← JSON response helpers
 └── router/router.go             ← ★ route registration
 ├── docs/                        ← documentation (you are here)
