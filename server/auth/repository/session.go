@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	repository "github.com/cheng-alvin/esplanade/server/repository"
+	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -49,30 +49,46 @@ func (Session) Indexes() []mongo.IndexModel {
 	}
 }
 
-// SessionRepository composes the lightweight generic repository with typed
-// session queries. Sessions are hard-deleted on logout, per the plan.
+// SessionRepository queries the sessions collection with typed filters.
+// Sessions are hard-deleted on logout, per the plan.
 type SessionRepository struct {
-	repo *repository.Repository[Session, *Session]
+	collection *mongo.Collection
 }
 
 func NewSessionRepository(collection *mongo.Collection) *SessionRepository {
-	return &SessionRepository{repo: repository.New[Session](collection, 0)}
+	return &SessionRepository{collection: collection}
 }
 
 func (r *SessionRepository) Insert(ctx context.Context, session *Session) error {
-	return r.repo.InsertOne(ctx, session)
+	session.SetID(bson.NewObjectID())
+	if _, err := r.collection.InsertOne(ctx, session); err != nil {
+		return esmongo.TranslateError(err)
+	}
+	return nil
 }
 
 func (r *SessionRepository) FindByID(ctx context.Context, id string) (*Session, error) {
-	return r.repo.FindByID(ctx, id)
+	oid, err := objectID(id)
+	if err != nil {
+		return nil, err
+	}
+	return r.findOne(ctx, bson.M{"_id": oid})
 }
 
 func (r *SessionRepository) FindByRefreshTokenHash(ctx context.Context, hash string) (*Session, error) {
-	return first(r.repo.Find(ctx, bson.M{"refresh_token_hash": hash}))
+	return r.findOne(ctx, bson.M{"refresh_token_hash": hash})
 }
 
 func (r *SessionRepository) FindByPreviousTokenHash(ctx context.Context, hash string) (*Session, error) {
-	return first(r.repo.Find(ctx, bson.M{"previous_token_hash": hash}))
+	return r.findOne(ctx, bson.M{"previous_token_hash": hash})
+}
+
+func (r *SessionRepository) findOne(ctx context.Context, filter bson.M) (*Session, error) {
+	var session Session
+	if err := r.collection.FindOne(ctx, filter).Decode(&session); err != nil {
+		return nil, esmongo.TranslateError(err)
+	}
+	return &session, nil
 }
 
 // Rotate atomically replaces the refresh hash only when the stored hash still
@@ -84,27 +100,39 @@ func (r *SessionRepository) Rotate(ctx context.Context, id, expectedRefreshHash,
 		return false, err
 	}
 
-	matched, err := r.repo.UpdateMany(ctx,
+	res, err := r.collection.UpdateMany(ctx,
 		bson.M{"_id": oid, "refresh_token_hash": expectedRefreshHash},
-		bson.M{
-			"refresh_token_hash": newRefreshHash,
+		bson.M{"$set": bson.M{
+			"refresh_token_hash":  newRefreshHash,
 			"previous_token_hash": expectedRefreshHash,
 			"last_refreshed_at":   time.Now().UTC(),
 			"expires_at":          expiresAt,
 			"purge_at":            purgeAt,
-		})
+		}})
 	if err != nil {
-		return false, err
+		return false, esmongo.TranslateError(err)
 	}
-	return matched > 0, nil
+	return res.MatchedCount > 0, nil
 }
 
 func (r *SessionRepository) Revoke(ctx context.Context, id, reason string, purgeAt time.Time) error {
-	return r.repo.UpdateOne(ctx, id, bson.M{
+	oid, err := objectID(id)
+	if err != nil {
+		return err
+	}
+
+	res, err := r.collection.UpdateOne(ctx, bson.M{"_id": oid}, bson.M{"$set": bson.M{
 		"revoked_at":     time.Now().UTC(),
 		"revoked_reason": reason,
 		"purge_at":       purgeAt,
-	})
+	}})
+	if err != nil {
+		return esmongo.TranslateError(err)
+	}
+	if res.MatchedCount == 0 {
+		return esmongo.ErrNotFound
+	}
+	return nil
 }
 
 // RevokeAllForUser revokes every not-yet-revoked session of the user. The nil
@@ -115,17 +143,33 @@ func (r *SessionRepository) RevokeAllForUser(ctx context.Context, userID, reason
 		return 0, err
 	}
 
-	return r.repo.UpdateMany(ctx,
+	res, err := r.collection.UpdateMany(ctx,
 		bson.M{"user_id": oid, "revoked_at": nil},
-		bson.M{
+		bson.M{"$set": bson.M{
 			"revoked_at":     time.Now().UTC(),
 			"revoked_reason": reason,
 			"purge_at":       purgeAt,
-		})
+		}})
+	if err != nil {
+		return 0, esmongo.TranslateError(err)
+	}
+	return res.MatchedCount, nil
 }
 
 func (r *SessionRepository) Delete(ctx context.Context, id string) error {
-	return r.repo.DeleteOne(ctx, id)
+	oid, err := objectID(id)
+	if err != nil {
+		return err
+	}
+
+	res, err := r.collection.DeleteOne(ctx, bson.M{"_id": oid})
+	if err != nil {
+		return esmongo.TranslateError(err)
+	}
+	if res.DeletedCount == 0 {
+		return esmongo.ErrNotFound
+	}
+	return nil
 }
 
 func (r *SessionRepository) DeleteForUserDevice(ctx context.Context, userID, deviceID string) (int64, error) {
@@ -138,5 +182,9 @@ func (r *SessionRepository) DeleteForUserDevice(ctx context.Context, userID, dev
 		return 0, err
 	}
 
-	return r.repo.DeleteMany(ctx, bson.M{"user_id": uoid, "device_id": doid})
+	res, err := r.collection.DeleteMany(ctx, bson.M{"user_id": uoid, "device_id": doid})
+	if err != nil {
+		return 0, esmongo.TranslateError(err)
+	}
+	return res.DeletedCount, nil
 }

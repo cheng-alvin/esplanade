@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	repository "github.com/cheng-alvin/esplanade/server/repository"
+	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -37,22 +37,30 @@ func (PasswordResetToken) Indexes() []mongo.IndexModel {
 	}
 }
 
-// PasswordResetRepository composes the lightweight generic repository with
-// typed reset-token queries.
+// PasswordResetRepository queries the password reset tokens collection with
+// typed filters.
 type PasswordResetRepository struct {
-	repo *repository.Repository[PasswordResetToken, *PasswordResetToken]
+	collection *mongo.Collection
 }
 
 func NewPasswordResetRepository(collection *mongo.Collection) *PasswordResetRepository {
-	return &PasswordResetRepository{repo: repository.New[PasswordResetToken](collection, 0)}
+	return &PasswordResetRepository{collection: collection}
 }
 
 func (r *PasswordResetRepository) Insert(ctx context.Context, token *PasswordResetToken) error {
-	return r.repo.InsertOne(ctx, token)
+	token.SetID(bson.NewObjectID())
+	if _, err := r.collection.InsertOne(ctx, token); err != nil {
+		return esmongo.TranslateError(err)
+	}
+	return nil
 }
 
 func (r *PasswordResetRepository) FindByTokenHash(ctx context.Context, hash string) (*PasswordResetToken, error) {
-	return first(r.repo.Find(ctx, bson.M{"token_hash": hash}))
+	var token PasswordResetToken
+	if err := r.collection.FindOne(ctx, bson.M{"token_hash": hash}).Decode(&token); err != nil {
+		return nil, esmongo.TranslateError(err)
+	}
+	return &token, nil
 }
 
 // MarkUsed CAS-marks the token used; a false return means it was already
@@ -63,13 +71,13 @@ func (r *PasswordResetRepository) MarkUsed(ctx context.Context, id string, purge
 		return false, err
 	}
 
-	matched, err := r.repo.UpdateMany(ctx,
+	res, err := r.collection.UpdateMany(ctx,
 		bson.M{"_id": oid, "used_at": nil},
-		bson.M{"used_at": time.Now().UTC(), "purge_at": purgeAt})
+		bson.M{"$set": bson.M{"used_at": time.Now().UTC(), "purge_at": purgeAt}})
 	if err != nil {
-		return false, err
+		return false, esmongo.TranslateError(err)
 	}
-	return matched > 0, nil
+	return res.MatchedCount > 0, nil
 }
 
 // InvalidateAllForUser marks every unused token of the user used, pulling each
@@ -80,7 +88,11 @@ func (r *PasswordResetRepository) InvalidateAllForUser(ctx context.Context, user
 		return 0, err
 	}
 
-	return r.repo.UpdateMany(ctx,
+	res, err := r.collection.UpdateMany(ctx,
 		bson.M{"user_id": oid, "used_at": nil},
-		bson.M{"used_at": time.Now().UTC(), "purge_at": purgeAt})
+		bson.M{"$set": bson.M{"used_at": time.Now().UTC(), "purge_at": purgeAt}})
+	if err != nil {
+		return 0, esmongo.TranslateError(err)
+	}
+	return res.MatchedCount, nil
 }
