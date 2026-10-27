@@ -6,7 +6,7 @@ with the auth middleware. [AUTH.md](./AUTH.md) is the authoritative record of
 the design decisions, data schema, and interface contracts; this guide
 describes the system as built. For the surrounding machinery, see
 [ADDING_ENDPOINTS.md](./ADDING_ENDPOINTS.md) (handlers and routing) and
-[MONGODB.md](./MONGODB.md) (the repository layer).
+[MONGODB.md](./MONGODB.md) (the MongoDB layer).
 
 ---
 
@@ -364,18 +364,18 @@ message-only form used elsewhere.
 ## Data model
 
 Four collections back the auth features. Indexes are declared on the document
-types (`CollectionName` / `Indexes`) and registered once at startup through
-`repository.EnsureIndexes` — see [MONGODB.md](./MONGODB.md). Full document
+types (`CollectionName` / `Indexes`) and registered once at startup in
+`main.go`'s index loop — see [MONGODB.md](./MONGODB.md). Full document
 definitions are in [AUTH.md](./AUTH.md), §4.
 
-| Collection              | Repository  | Indexes                                                              | Notes                                                                                  |
+| Collection              | Mode        | Indexes                                                              | Notes                                                                                  |
 | ----------------------- | ----------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `users`                 | audited     | unique `email`; unique sparse `google_auth.subject`; sparse `email_auth.verification_token.token_hash` | implements `Auditable` directly (no `repository.Base` embed); `status` is the lifecycle field |
+| `users`                 | audited     | unique `email`; unique sparse `google_auth.subject`; sparse `email_auth.verification_token.token_hash` | carries its audit fields directly (no embedded base type); `status` is the lifecycle field |
 | `sessions`              | lightweight | `user_id`; `refresh_token_hash`; sparse `previous_token_hash`; TTL `purge_at` | hard-deleted on logout                                                                 |
 | `password_reset_tokens` | lightweight | `token_hash`; `user_id`; TTL `purge_at`                              | single-use                                                                             |
 | `devices`               | audited     | unique `(user_id, identifier)`                                       | created on the first session for a device identifier                                   |
 
-All repository filters are built internally from typed parameters; no raw
+All data-layer filters are built internally from typed parameters; no raw
 client input ever reaches a Mongo filter.
 
 ---
