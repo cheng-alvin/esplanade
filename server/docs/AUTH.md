@@ -38,7 +38,7 @@ manually).
 | R7 | Additional indexes: `sessions.refresh_token_hash`, `sessions.previous_token_hash` (sparse), `password_reset_tokens.token_hash`, `password_reset_tokens.user_id`, unique `devices(user_id, identifier)`. |
 | R8 | `POST /auth/register` returns **409** for an existing email (registration is not enumeration-safe; only login / forgot / resend are). |
 | R9 | Constants: verification-token TTL 24h; reset-token TTL 1h; resend cap 3/h; `verification_token.attempts_left` is set to 5 and is **never decremented** this sprint (no code-entry endpoint; the field is reserved for a future one). |
-| R11 | `users` uses the **audited** repository (managed `created_at`/`updated_at`; soft delete unused — `status` is the lifecycle field; `User` does **not** embed `repository.Base`, it implements the `Auditable` methods directly). `sessions` and `password_reset_tokens` use the **lightweight** repository (hard delete for logout). |
+| R11 | `users` is **audited** (the data layer manages `created_at`/`updated_at` and excludes soft-deleted documents directly; soft delete is unused — `status` is the lifecycle field; `User` carries its audit fields directly). `sessions` and `password_reset_tokens` are **lightweight** (no audit fields; hard delete for logout). |
 | R12 | Login performs a dummy password verification when the account is missing or has no email auth, equalizing response timing. |
 
 **PurgeAt / ExpiresAt semantics (normative):** `ExpiresAt` and `RevokedAt`/`UsedAt` are
@@ -55,11 +55,11 @@ targets the base):
 
 | # | Branch | Contents |
 |---|--------|----------|
-| 1 | `repository-write-ops` | `UpdateMany`, `UpdateOneWithUnset`, `DeleteMany` on both repository variants (base `server/repository` package). |
+| 1 | `repository-write-ops` | **Closed** — the repository abstraction was removed; the batch update/delete operations are implemented as direct driver calls in the data layer (§7.1). |
 | 2 | `foundation` | Config additions (§6); `server/auth/errors`; `server/auth/token`; `server/auth/jwt`; `server/auth/providers/email`; `server/ratelimit`. |
 | 3 | `google-verifier` | `server/auth/providers/google`. |
-| 4 | `device-package` | `server/devices`; `main.go` registers the devices index provider. |
-| 5 | `data-layer` | `server/auth/repository` (User, Session, PasswordResetToken: documents, indexes, typed queries); `main.go` registers the three auth index providers. |
+| 4 | `device-package` | `server/devices`; `main.go` ensures the devices indexes. |
+| 5 | `data-layer` | `server/auth/repository` (User, Session, PasswordResetToken: documents, indexes, typed queries); `main.go` ensures the three auth collections' indexes. |
 | 6 | `email-sender` | `server/email` (Sender interface, SMTP implementation, dev log sender). |
 | 7 | `service-core` | `server/auth/service`: service struct + Deps, register/login/refresh/logout/logout-all/me, session machinery. |
 | 8 | `http-layer` | `server/handler/auth` (core endpoints, DTOs, error mapping); `server/auth/middleware`; `respond.ErrorCode`; ctx key additions; `router` wiring for core routes; `main.go` assembly. |
@@ -73,7 +73,7 @@ targets the base):
 Mongo ID type is `bson.ObjectID` (mongo-driver v2 naming; the original plan's
 `primitive.ObjectID` spells the same type).
 
-### `users` — audited repository, no `Base` embed
+### `users` — audited fields
 
 ```go
 type AuthProvider string
@@ -128,7 +128,7 @@ type User struct {
 	GoogleAuth *GoogleAuthMethod `bson:"google_auth,omitempty"`
 }
 
-// Auditable contract — User does NOT embed repository.Base; implement directly.
+// User carries its audit fields directly (no shared base type).
 func (u *User) SetID(id bson.ObjectID)   { u.ID = id }
 func (u *User) ID() bson.ObjectID        { return u.ID }
 func (u *User) SetCreatedAt(t time.Time) { u.CreatedAt = t }
@@ -147,7 +147,7 @@ Indexes: unique `email`; unique sparse `google_auth.subject`; sparse
 Note: `device_ids` / `device_count` are owned by future device-management; the auth
 component never writes them.
 
-### `sessions` — lightweight repository
+### `sessions` — lightweight (no audit fields)
 
 ```go
 type Session struct {
@@ -179,7 +179,7 @@ const (
 Indexes: `user_id`; `refresh_token_hash`; sparse `previous_token_hash`; **TTL** on
 `purge_at` (`SetExpireAfterSeconds(0)`).
 
-### `password_reset_tokens` — lightweight repository
+### `password_reset_tokens` — lightweight (no audit fields)
 
 ```go
 type PasswordResetToken struct {
@@ -198,11 +198,14 @@ func (t *PasswordResetToken) ID() bson.ObjectID      { return t.ID }
 
 Indexes: `token_hash`; `user_id`; **TTL** on `purge_at`.
 
-### `devices` — audited repository (embeds `repository.Base`)
+### `devices` — audited fields
 
 ```go
 type Device struct {
-	repository.Base `bson:",inline"`
+	ObjectID  bson.ObjectID `bson:"_id,omitempty"`
+	CreatedAt time.Time     `bson:"created_at"`
+	UpdatedAt time.Time     `bson:"updated_at"`
+	DeletedAt *time.Time    `bson:"deleted_at,omitempty"`
 
 	UserID     bson.ObjectID `bson:"user_id"`
 	Identifier string        `bson:"identifier"` // client-generated, opaque
@@ -231,7 +234,7 @@ server/
 ```
 
 Existing packages edited: `server/config`, `server/respond`, `server/ctxkey`,
-`server/router`, `server/main.go`, `server/repository` (branch 1 only).
+`server/router`, `server/main.go`.
 
 ## 6. Configuration (branch 2)
 
@@ -260,31 +263,21 @@ commented out / absent.
 
 ## 7. Interface contracts
 
-### 7.1 Repository write operations (branch 1, `server/repository`)
+### 7.1 Batch write operations (branch 1 — closed)
 
-Added to both `Repository[T, PT]` and `AuditedRepository[T, PT]` (and the
-`RepositoryOperations` interface):
+Branch `repository-write-ops` was closed: the repository abstraction was
+removed, so no repository primitives exist. The write operations it carried
+are implemented as direct mongo-driver calls inside the data layer (§7.10)
+and `server/devices` (§7.9):
 
-```go
-// UpdateMany applies $set fields to every document matching filter and
-// returns the number of matched documents. Audited repositories scope the
-// filter to non-deleted documents and bump updated_at.
-UpdateMany(ctx context.Context, filter bson.M, fields bson.M) (int64, error)
+- batch `$set` updates — session revocation and reset-token invalidation;
+- atomic `$set` + `$unset` against one document — email verification and
+  provider unlinking;
+- batch deletes — per-device logout cleanup.
 
-// UpdateOneWithUnset applies $set fields (may be nil/empty) and $unset names
-// to the document with the given hex ID, atomically. Audited repositories
-// bump updated_at. Returns esmongo.ErrNotFound for a malformed ID or no
-// match. A call with nothing to change returns nil (no-op).
-UpdateOneWithUnset(ctx context.Context, id string, fields bson.M, unset []string) error
-
-// DeleteMany permanently deletes every document matching filter and returns
-// the number deleted.
-DeleteMany(ctx context.Context, filter bson.M) (int64, error)
-```
-
-Implementation mirrors existing primitives: bounded operation timeout, filters passed
-through the internal `scope` function, `esmongo.TranslateError` on driver errors, set
-fields copied (never mutated in place).
+Audit semantics are preserved: audited filters exclude soft-deleted
+documents, audited updates bump `updated_at`, and driver errors are routed
+through `esmongo.TranslateError`.
 
 ### 7.2 `server/auth/errors` (branch 2)
 
@@ -478,9 +471,13 @@ In-memory, single instance; documented limitation.
 const DeviceCollection = "devices"
 
 type Device struct {
-	repository.Base `bson:",inline"`
-	UserID          bson.ObjectID `bson:"user_id"`
-	Identifier      string        `bson:"identifier"`
+	ObjectID  bson.ObjectID `bson:"_id,omitempty"`
+	CreatedAt time.Time     `bson:"created_at"`
+	UpdatedAt time.Time     `bson:"updated_at"`
+	DeletedAt *time.Time    `bson:"deleted_at,omitempty"`
+
+	UserID     bson.ObjectID `bson:"user_id"`
+	Identifier string        `bson:"identifier"`
 }
 
 func (Device) CollectionName() string        { return DeviceCollection }
@@ -490,7 +487,7 @@ func (Device) Indexes() []mongo.IndexModel   { /* unique {user_id:1, identifier:
 // 256 characters. Returns the trimmed value.
 func ValidateIdentifier(raw string) (string, error)
 
-type Store struct{ /* *repository.AuditedRepository[Device, *Device] */ }
+type Store struct{ /* *mongo.Collection; audited fields managed by the store */ }
 func NewStore(collection *mongo.Collection) *Store
 
 // FindOrRegister returns the stable device ID for (userID, identifier),
@@ -509,12 +506,12 @@ Collection-name constants: `UserCollection = "users"`, `SessionCollection = "ses
 `PasswordResetCollection = "password_reset_tokens"`.
 
 Documents and indexes per §4 (`CollectionName()` / `Indexes()` implemented on the value
-types so they satisfy `repository.IndexProvider`). All filters are built internally from
-typed parameters — no raw client input ever reaches a Mongo filter. All methods return
-`esmongo` sentinels (`TranslateError` is applied by the generic layer).
+types, registered in `main.go`'s startup index loop). All filters are built internally
+from typed parameters — no raw client input ever reaches a Mongo filter. All methods
+return `esmongo` sentinels (`TranslateError` is applied at each driver call).
 
 ```go
-type UserRepository struct{ /* *repository.AuditedRepository[User, *User] */ }
+type UserRepository struct{ /* *mongo.Collection; audited fields managed directly */ }
 func NewUserRepository(collection *mongo.Collection) *UserRepository
 
 func (r *UserRepository) Insert(ctx, u *User) error
@@ -529,7 +526,7 @@ func (r *UserRepository) SetGoogleAuth(ctx context.Context, id string, method *G
 func (r *UserRepository) UnsetEmailAuth(ctx context.Context, id string) error
 func (r *UserRepository) UnsetGoogleAuth(ctx context.Context, id string) error
 
-type SessionRepository struct{ /* *repository.Repository[Session, *Session] */ }
+type SessionRepository struct{ /* *mongo.Collection; no audit fields */ }
 func NewSessionRepository(collection *mongo.Collection) *SessionRepository
 
 func (r *SessionRepository) Insert(ctx context.Context, s *Session) error
@@ -555,7 +552,7 @@ func (r *SessionRepository) Delete(ctx context.Context, id string) error
 // DeleteForUserDevice permanently deletes all sessions for (user_id, device_id); returns the count.
 func (r *SessionRepository) DeleteForUserDevice(ctx context.Context, userID, deviceID string) (int64, error)
 
-type PasswordResetRepository struct{ /* *repository.Repository[PasswordResetToken, *PasswordResetToken] */ }
+type PasswordResetRepository struct{ /* *mongo.Collection; no audit fields */ }
 func NewPasswordResetRepository(collection *mongo.Collection) *PasswordResetRepository
 
 func (r *PasswordResetRepository) Insert(ctx context.Context, t *PasswordResetToken) error
@@ -645,7 +642,7 @@ Shared helpers (branch 7, `service.go` / `sessions.go`):
 - Email copy is defined in the service (subjects: "Verify your Esplanade email",
   "Reset your Esplanade password").
 
-Services depend on the concrete repository/verifier types above; handlers depend on the
+Services depend on the concrete data-layer/verifier types above; handlers depend on the
 concrete `*AuthService` (no interface extraction this sprint — mockability is only
 needed once tests exist).
 
