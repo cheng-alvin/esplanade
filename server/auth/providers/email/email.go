@@ -3,15 +3,12 @@
 package email
 
 import (
-	"crypto/rand"
-	"crypto/subtle"
-	"encoding/base64"
 	"fmt"
 	"net/mail"
 	"strings"
 
+	"github.com/alexedwards/argon2id"
 	autherr "github.com/cheng-alvin/esplanade/server/auth/errors"
-	"golang.org/x/crypto/argon2"
 )
 
 const (
@@ -20,13 +17,24 @@ const (
 	MaxEmailLength    = 254
 
 	// argon2id parameters follow OWASP's baseline (19 MiB, t=2, p=1).
-	// argonMemory is expressed in KiB as required by argon2.IDKey.
+	// argonMemory is expressed in KiB, matching argon2id.Params.
 	argonTime    = 2
 	argonMemory  = 19456
 	argonThreads = 1
 	argonKeyLen  = 32
 	saltLen      = 16
 )
+
+// argonParams govern hashing of new credentials. Verification reads the
+// parameters embedded in each stored hash, so retuning these does not
+// invalidate existing hashes.
+var argonParams = &argon2id.Params{
+	Memory:      argonMemory,
+	Iterations:  argonTime,
+	Parallelism: argonThreads,
+	SaltLength:  saltLen,
+	KeyLength:   argonKeyLen,
+}
 
 // NormalizeEmail trims, lowercases and validates a bare email address.
 // Display-name forms ("Name <a@b>") are rejected: the address doubles as the
@@ -55,49 +63,20 @@ func ValidatePassword(plain string) error {
 //
 //	$argon2id$v=19$m=19456,t=2,p=1$<b64raw(salt)>$<b64raw(key)>
 func HashPassword(plain string) (string, error) {
-	salt := make([]byte, saltLen)
-	if _, err := rand.Read(salt); err != nil {
-		return "", fmt.Errorf("email: generating password salt: %w", err)
+	encoded, err := argon2id.CreateHash(plain, argonParams)
+	if err != nil {
+		return "", fmt.Errorf("email: hashing password: %w", err)
 	}
-
-	key := argon2.IDKey([]byte(plain), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
-	return fmt.Sprintf(
-		"$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
-		argon2.Version, argonMemory, argonTime, argonThreads,
-		base64.RawStdEncoding.EncodeToString(salt),
-		base64.RawStdEncoding.EncodeToString(key),
-	), nil
+	return encoded, nil
 }
 
 // VerifyPassword recomputes the hash from the parameters encoded in the
 // stored value and compares in constant time. Malformed encodings return
 // false: callers only need a yes/no credential check.
 func VerifyPassword(plain, encoded string) bool {
-	parts := strings.Split(encoded, "$")
-	if len(parts) != 6 || parts[1] != "argon2id" {
-		return false
-	}
-
-	var version int
-	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil || version != argon2.Version {
-		return false
-	}
-
-	var memory, timeCost uint32
-	var threads uint8
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &timeCost, &threads); err != nil {
-		return false
-	}
-
-	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
+	match, err := argon2id.ComparePasswordAndHash(plain, encoded)
 	if err != nil {
 		return false
 	}
-	key, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil || len(salt) == 0 || len(key) == 0 {
-		return false
-	}
-
-	computed := argon2.IDKey([]byte(plain), salt, timeCost, memory, threads, uint32(len(key)))
-	return subtle.ConstantTimeCompare(computed, key) == 1
+	return match
 }
