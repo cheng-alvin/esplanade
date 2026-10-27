@@ -1,13 +1,13 @@
-// Package repository composes the generic Mongo repository layer with the auth
-// domain's documents and typed queries. Filters are always built internally
-// from typed parameters — never from raw client input.
+// Package repository holds the auth domain's Mongo documents and typed
+// queries. Queries call the mongo-driver directly; filters are always built
+// internally from typed parameters — never from raw client input.
 package repository
 
 import (
 	"context"
 	"time"
 
-	repository "github.com/cheng-alvin/esplanade/server/repository"
+	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -79,8 +79,8 @@ type User struct {
 	GoogleAuth *GoogleAuthMethod `bson:"google_auth,omitempty"`
 }
 
-// User does not embed repository.Base; it implements the Auditable contract
-// directly so the persisted schema matches the design exactly.
+// User carries its audit fields directly so the persisted schema matches the
+// design exactly.
 func (u *User) SetID(id bson.ObjectID)   { u.ObjectID = id }
 func (u *User) ID() bson.ObjectID        { return u.ObjectID }
 func (u *User) SetCreatedAt(t time.Time) { u.CreatedAt = t }
@@ -96,60 +96,112 @@ func (User) Indexes() []mongo.IndexModel {
 	}
 }
 
-// UserRepository composes the audited generic repository with typed user
-// queries. The duplicate-key error from the unique email / Google-subject
-// indexes surfaces as esmongo.ErrConflict through the generic layer.
+// UserRepository queries the users collection with typed filters. The
+// duplicate-key error from the unique email / Google-subject indexes surfaces
+// as esmongo.ErrConflict via TranslateError.
 type UserRepository struct {
-	repo *repository.AuditedRepository[User, *User]
+	collection *mongo.Collection
 }
 
 func NewUserRepository(collection *mongo.Collection) *UserRepository {
-	return &UserRepository{repo: repository.NewAudited[User](collection, 0)}
+	return &UserRepository{collection: collection}
 }
 
 func (r *UserRepository) Insert(ctx context.Context, user *User) error {
-	return r.repo.InsertOne(ctx, user)
+	user.SetID(bson.NewObjectID())
+	now := time.Now().UTC()
+	user.SetCreatedAt(now)
+	user.SetUpdatedAt(now)
+	if _, err := r.collection.InsertOne(ctx, user); err != nil {
+		return esmongo.TranslateError(err)
+	}
+	return nil
 }
 
 func (r *UserRepository) FindByID(ctx context.Context, id string) (*User, error) {
-	return r.repo.FindByID(ctx, id)
+	oid, err := objectID(id)
+	if err != nil {
+		return nil, err
+	}
+	return r.findOne(ctx, bson.M{"_id": oid})
 }
 
 func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*User, error) {
-	return first(r.repo.Find(ctx, bson.M{"email": email}))
+	return r.findOne(ctx, bson.M{"email": email})
 }
 
 func (r *UserRepository) FindByGoogleSubject(ctx context.Context, subject string) (*User, error) {
-	return first(r.repo.Find(ctx, bson.M{"google_auth.subject": subject}))
+	return r.findOne(ctx, bson.M{"google_auth.subject": subject})
 }
 
 func (r *UserRepository) FindByVerificationTokenHash(ctx context.Context, hash string) (*User, error) {
-	return first(r.repo.Find(ctx, bson.M{"email_auth.verification_token.token_hash": hash}))
+	return r.findOne(ctx, bson.M{"email_auth.verification_token.token_hash": hash})
+}
+
+func (r *UserRepository) findOne(ctx context.Context, filter bson.M) (*User, error) {
+	var user User
+	if err := r.collection.FindOne(ctx, scoped(filter)).Decode(&user); err != nil {
+		return nil, esmongo.TranslateError(err)
+	}
+	return &user, nil
+}
+
+// update applies a single-document update, bumps updated_at, and excludes
+// soft-deleted documents.
+func (r *UserRepository) update(ctx context.Context, id string, fields bson.M, unset []string) error {
+	oid, err := objectID(id)
+	if err != nil {
+		return err
+	}
+
+	set := make(bson.M, len(fields)+1)
+	for k, v := range fields {
+		set[k] = v
+	}
+	set["updated_at"] = time.Now().UTC()
+
+	update := bson.M{"$set": set}
+	if len(unset) > 0 {
+		names := make(bson.M, len(unset))
+		for _, name := range unset {
+			names[name] = ""
+		}
+		update["$unset"] = names
+	}
+
+	res, err := r.collection.UpdateOne(ctx, scoped(bson.M{"_id": oid}), update)
+	if err != nil {
+		return esmongo.TranslateError(err)
+	}
+	if res.MatchedCount == 0 {
+		return esmongo.ErrNotFound
+	}
+	return nil
 }
 
 func (r *UserRepository) SetVerificationToken(ctx context.Context, id string, tok *EmailVerificationToken) error {
-	return r.repo.UpdateOne(ctx, id, bson.M{
+	return r.update(ctx, id, bson.M{
 		"email_auth.verification_token": tok,
 		"email_auth.updated_at":         time.Now().UTC(),
-	})
+	}, nil)
 }
 
 func (r *UserRepository) MarkEmailVerified(ctx context.Context, id string) error {
-	return r.repo.UpdateOneWithUnset(ctx, id, bson.M{"email_auth.email_verified": true}, []string{"email_auth.verification_token"})
+	return r.update(ctx, id, bson.M{"email_auth.email_verified": true}, []string{"email_auth.verification_token"})
 }
 
 func (r *UserRepository) SetPasswordHash(ctx context.Context, id string, passwordHash string) error {
-	return r.repo.UpdateOne(ctx, id, bson.M{"email_auth.password_hash": passwordHash})
+	return r.update(ctx, id, bson.M{"email_auth.password_hash": passwordHash}, nil)
 }
 
 func (r *UserRepository) SetGoogleAuth(ctx context.Context, id string, method *GoogleAuthMethod) error {
-	return r.repo.UpdateOne(ctx, id, bson.M{"google_auth": method})
+	return r.update(ctx, id, bson.M{"google_auth": method}, nil)
 }
 
 func (r *UserRepository) UnsetEmailAuth(ctx context.Context, id string) error {
-	return r.repo.UpdateOneWithUnset(ctx, id, nil, []string{"email_auth"})
+	return r.update(ctx, id, nil, []string{"email_auth"})
 }
 
 func (r *UserRepository) UnsetGoogleAuth(ctx context.Context, id string) error {
-	return r.repo.UpdateOneWithUnset(ctx, id, nil, []string{"google_auth"})
+	return r.update(ctx, id, nil, []string{"google_auth"})
 }
