@@ -1,7 +1,7 @@
 # MongoDB Integration
 
 This guide explains how the server talks to MongoDB, and how to build a
-new resource (e.g. `devices`) on top of it. It complements
+new resource (e.g. `devices`) against it. It complements
 [ADDING_ENDPOINTS.md](./ADDING_ENDPOINTS.md), which covers the
 handler/router side.
 
@@ -14,23 +14,15 @@ server/
 ├── db/mongo/
 │   ├── mongo.go     ← connection lifecycle: New, Ping, Disconnect, Database, Collection
 │   └── errors.go    ← ErrNotFound, ErrConflict, TranslateError
-└── repository/
-    ├── primitives.go ← shared types, CRUD primitives, and primitive-adjacent API methods
-    ├── standard.go   ← lightweight Repository[T, PT] struct and New
-    ├── audited.go   ← AuditedRepository[T, PT], NewAudited, and audited document types
-    └── index.go               ← EnsureIndexes + IndexProvider, called once at startup
+└── <resource>/      ← a resource package owns its documents, indexes, and queries
 ```
 
-`db/mongo` owns the connection. `repository` owns generic CRUD mechanics
-on top of that connection. Shared repository primitives and public adapter
-methods remain in `primitives.go`, colocated with the base primitive each
-method delegates to. `standard.go` and `audited.go` keep the public
-repository structs and their constructors in their respective files, along
-with the audited document types. Neither package knows anything about a
-specific resource (devices, transfers,
-clipboard entries, ...) — that domain knowledge lives in per-resource packages
-that don't exist yet, built the same way `handler/widgets` is described in
-ADDING_ENDPOINTS.md.
+`db/mongo` owns the connection lifecycle and the shared error
+translation. Resource packages (e.g. `server/devices/`) own their
+document types, typed queries, and index definitions, and call the
+[mongo-driver](https://pkg.go.dev/go.mongodb.org/mongo-driver/v2) APIs
+on the collections they are given. There is no generic CRUD layer in
+between — persistence code is plain driver calls.
 
 ---
 
@@ -44,7 +36,15 @@ explicitly — the same dependency-injection pattern already used for
 mongoClient, err := esmongo.New(ctx, cfg)
 // ...
 mongoDB := esmongo.Database(mongoClient, cfg.MongoDatabase)
-repository.EnsureIndexes(ctx, mongoDB /* , providers... */)
+
+indexCtx, indexCancel := context.WithTimeout(context.Background(), 5*time.Second)
+for _, ix := range indexSpecs { // {collection, models} pairs from the resource packages
+    if _, err := mongoDB.Collection(ix.collection).Indexes().CreateMany(indexCtx, ix.models); err != nil {
+        logger.Fatal("ensuring mongo indexes", zap.String("collection", ix.collection), zap.Error(err))
+    }
+}
+indexCancel()
+
 mux := router.New(mongoClient)
 ```
 
@@ -60,20 +60,21 @@ pure liveness check with no downstream dependency.
 
 ## Adding a new resource
 
-1. **Define the document type**. For an audit-aware resource, embed
-   `repository.Base` for `_id`, `created_at`, `updated_at`, and `deleted_at`;
-   it satisfies `Auditable`, which embeds `Document`, so it supplies both the
-   audit and ID contracts. A lightweight resource only needs to implement
-   `SetID` and `ID` and does not need to embed `Base`:
+1. **Define the document type** with the audit fields its schema needs.
+   An audit-aware resource carries `_id`, `created_at`, `updated_at`,
+   and `deleted_at` directly on the struct:
 
    ```go
    // handler/devices/model.go (or a dedicated devices/ package)
    package devices
 
-   import "github.com/cheng-alvin/esplanade/server/repository"
+   import "go.mongodb.org/mongo-driver/v2/bson"
 
    type Device struct {
-       repository.Base `bson:",inline"`
+       ObjectID  bson.ObjectID `bson:"_id,omitempty"`
+       CreatedAt time.Time     `bson:"created_at"`
+       UpdatedAt time.Time     `bson:"updated_at"`
+       DeletedAt *time.Time    `bson:"deleted_at,omitempty"`
 
        Name   string `bson:"name"`
        Model  string `bson:"model"`
@@ -81,43 +82,84 @@ pure liveness check with no downstream dependency.
    }
    ```
 
-2. **Choose the repository behavior** for the resource. Use the audited
-   repository when the resource embeds `Base`:
+   A lightweight resource only needs `_id` plus the fields its schema
+   requires — no audit fields, and deletes are permanent:
 
    ```go
-   repo := repository.NewAudited[Device](
-       esmongo.Collection(mongoDB, "devices"),
-       0, // 0 = repository.DefaultOperationTimeout
-   )
-   ```
-
-   For a document that does not need audit fields or soft deletes, use the
-   lightweight repository instead:
-
-   ```go
-   repo := repository.New[LogEntry](
-       esmongo.Collection(mongoDB, "log_entries"),
-       0,
-   )
-   ```
-
-3. **Add domain-specific queries** as functions in the resource package
-   that compose `repo.Find` with a typed, internally-built filter —
-   never a filter built from raw request input:
-
-   ```go
-   func (r *Repo) OnlineForUser(ctx context.Context, userID string) ([]*Device, error) {
-       return r.repo.Find(ctx, bson.M{"user_id": userID, "online": true})
-   }
-
-   func (r *Repo) OnlineForUserPage(ctx context.Context, userID string, afterID string, pageSize int) (repository.FindResult[*Device], error) {
-       return r.repo.FindPage(ctx, bson.M{"user_id": userID, "online": true}, afterID, pageSize)
+   type LogEntry struct {
+       ObjectID bson.ObjectID `bson:"_id,omitempty"`
+       Message  string        `bson:"message"`
    }
    ```
 
-4. **Declare indexes** next to the resource, by implementing
-   `repository.IndexProvider`, and register the provider in `main.go`'s
-   `EnsureIndexes` call:
+2. **Query the collection directly.** Give the resource's store (or
+   data-layer package) a `*mongo.Collection` and call the driver:
+
+   ```go
+   type Store struct{ collection *mongo.Collection }
+
+   func (s *Store) Insert(ctx context.Context, entry *LogEntry) error {
+       entry.ObjectID = bson.NewObjectID()
+       _, err := s.collection.InsertOne(ctx, entry)
+       return esmongo.TranslateError(err)
+   }
+   ```
+
+3. **Add domain-specific queries** with a typed, internally-built
+   filter — never a filter assembled from raw request input. This is
+   the main NoSQL-injection boundary in this codebase, so it's worth
+   treating as a hard rule rather than a style preference:
+
+   ```go
+   func (s *Store) OnlineForUser(ctx context.Context, userID string) ([]*Device, error) {
+       cursor, err := s.collection.Find(ctx, bson.M{"user_id": userID, "online": true})
+       if err != nil {
+           return nil, esmongo.TranslateError(err)
+       }
+       items := make([]*Device, 0)
+       if err := cursor.All(ctx, &items); err != nil {
+           return nil, esmongo.TranslateError(err)
+       }
+       return items, nil
+   }
+   ```
+
+4. **Manage audit fields and soft deletes in the resource's writes.**
+   For an audited resource:
+
+   - on insert, set `ObjectID = bson.NewObjectID()` and
+     `CreatedAt`/`UpdatedAt` to `time.Now().UTC()`;
+   - on update, `$set` `updated_at` alongside the changed fields;
+   - on delete, soft delete by setting `deleted_at` (and `updated_at`)
+     instead of removing the document;
+   - on every read and update, exclude soft-deleted documents with
+     `"deleted_at": bson.M{"$exists": false}`.
+
+   ```go
+   func (s *Store) SoftDelete(ctx context.Context, id string) error {
+       oid, err := bson.ObjectIDFromHex(id)
+       if err != nil {
+           return esmongo.ErrNotFound
+       }
+       now := time.Now().UTC()
+       res, err := s.collection.UpdateOne(ctx,
+           bson.M{"_id": oid, "deleted_at": bson.M{"$exists": false}},
+           bson.M{"$set": bson.M{"deleted_at": now, "updated_at": now}})
+       if err != nil {
+           return esmongo.TranslateError(err)
+       }
+       if res.MatchedCount == 0 {
+           return esmongo.ErrNotFound
+       }
+       return nil
+   }
+   ```
+
+   For TTL-based expiry, store the expiry time on the document (e.g.
+   `purge_at`) and set the TTL on its index (see step 5).
+
+5. **Declare indexes next to the resource**, then ensure them from
+   `main.go`'s startup loop.
 
    ```go
    func (Device) CollectionName() string { return "devices" }
@@ -125,43 +167,42 @@ pure liveness check with no downstream dependency.
    func (Device) Indexes() []mongo.IndexModel {
        return []mongo.IndexModel{
            {Keys: bson.D{{Key: "user_id", Value: 1}}},
+           // TTL: Mongo removes a document once purge_at passes.
+           {Keys: bson.D{{Key: "purge_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)},
        }
    }
    ```
 
-5. **Expose a narrow interface to handlers** (e.g. just `FindByID`,
-   `Find`, or `FindPage`), not the concrete `*Repository[...]` or
-   `*AuditedRepository[...]` type, so handler tests can mock exactly what
-   they use.
+   Keeping indexes in the resource package (not a separate migrations
+   file) is deliberate — it keeps schema and access code from drifting
+   apart. Register the collection's `Indexes()` output in the startup
+   loop in `main.go`, which calls `CreateMany` for each collection.
+
+6. **Expose a narrow interface to handlers** (e.g. just `FindByID`,
+   `Find`), not the concrete store type, so handler tests can mock
+   exactly what they use.
 
 ---
 
-## Guarantees the generic layer gives you
+## Guarantees to carry into resource code
 
-- **Two repository modes** — `NewAudited` manages audit fields and soft
-  deletes for documents implementing `Auditable`; `New` is lightweight and
-  only requires the ID methods.
-- **Consistent audit fields in audited mode** — `InsertOne` sets `_id`,
-  `created_at`, and `updated_at`; `UpdateOne` bumps `updated_at`.
-- **Soft deletes in audited mode** — `DeleteOne` sets `deleted_at`; every
-  read excludes soft-deleted documents automatically. Use `HardDelete`
-  only when a literal, unrecoverable removal is actually required.
-- **Permanent deletes in lightweight mode** — `DeleteOne` removes the
-  document because no `deleted_at` contract is assumed.
-- **Standard queries by default** — `Find` returns matching documents without
-  pagination; audited repositories exclude soft-deleted documents.
-- **Explicit cursor pagination** — `FindPage` provides cursor-based
-  fetching on `_id` and caps page size at `repository.MaxPageSize` when
-  a caller deliberately requests paged results.
-- **Injection safety** — `Find`/`Count`/`Exists` take a `bson.M` your
-  package builds from typed parameters; never pass through a raw,
-  client-controlled map.
-- **Bounded operations** — every method applies its own timeout
-  (`repository.DefaultOperationTimeout` by default), independent of the
-  caller's request timeout.
+The driver does not provide these for you — they are conventions this
+codebase follows:
+
+- **Consistent audit fields** — `_id`, `created_at`, and `updated_at`
+  are set by the resource's insert path; updates bump `updated_at`.
+- **Soft deletes** — audited resources set `deleted_at` instead of
+  deleting, and exclude soft-deleted documents in every read and
+  update filter.
+- **TTL expiry** — time-limited documents store an expiry field and
+  declare a `SetExpireAfterSeconds(0)` index on it.
+- **Injection safety** — build filters from typed parameters inside
+  the resource package; never pass through a raw, client-controlled
+  map.
 - **Clean errors** — `esmongo.ErrNotFound` / `esmongo.ErrConflict` are
   the only Mongo-shaped errors that cross into the handler layer; map
-  them to HTTP status codes with `respond.Error` (404 / 409).
+  them to HTTP status codes with `respond.Error` (404 / 409). Route
+  raw driver errors through `esmongo.TranslateError`.
 
 ---
 
