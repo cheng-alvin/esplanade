@@ -71,6 +71,15 @@ func NewVerifier(secret string) *Verifier {
 	return &Verifier{secret: []byte(secret)}
 }
 
+// numericTime unwraps an optional NumericDate claim into a time.Time, returning
+// the zero time when the claim is absent.
+func numericTime(nd *jwtlib.NumericDate) time.Time {
+	if nd == nil {
+		return time.Time{}
+	}
+	return nd.Time
+}
+
 // Verify parses and validates a raw access token. It returns
 // autherr.ErrTokenExpired for an expired token and autherr.ErrTokenInvalid
 // for every other failure (bad signature, malformed, wrong algorithm).
@@ -93,16 +102,13 @@ func (v *Verifier) Verify(raw string) (*Claims, error) {
 	}
 
 	verified := &Claims{
-		UserID:   claims.Subject,
-		Email:    claims.Email,
-		DeviceID: claims.DeviceID,
-		JTI:      claims.ID,
+		UserID:    claims.Subject,
+		Email:     claims.Email,
+		DeviceID:  claims.DeviceID,
+		JTI:       claims.ID,
+		ExpiresAt: numericTIme(claims.ExpiresAt),
+		IssuedAt:  numericTIme(claims.IssuedAt),
 	}
-	if claims.IssuedAt != nil {
-		verified.IssuedAt = claims.IssuedAt.Time
-	}
-	if claims.ExpiresAt != nil {
-		verified.ExpiresAt = claims.ExpiresAt.Time
-	}
+
 	return verified, nil
 }
