@@ -13,7 +13,6 @@ import (
 	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
 	"github.com/cheng-alvin/esplanade/server/logging"
 	"github.com/cheng-alvin/esplanade/server/middleware"
-	"github.com/cheng-alvin/esplanade/server/repository"
 	"github.com/cheng-alvin/esplanade/server/router"
 	"go.uber.org/zap"
 )
@@ -43,14 +42,6 @@ func main() {
 		logger.Fatal("connecting to mongo", zap.Error(err))
 	}
 	logger.Info("connected to mongo", zap.String("database", cfg.MongoDatabase))
-
-	mongoDB := esmongo.Database(mongoClient, cfg.MongoDatabase)
-
-	indexCtx, indexCancel := context.WithTimeout(context.Background(), repository.DefaultOperationTimeout)
-	if err = repository.EnsureIndexes(indexCtx, mongoDB); err != nil {
-		logger.Fatal("ensuring mongo indexes", zap.Error(err))
-	}
-	indexCancel()
 
 	mux := router.New(mongoClient)
 	handler := middleware.Chain(
