@@ -14,7 +14,6 @@ import (
 	"github.com/cheng-alvin/esplanade/server/devices"
 	"github.com/cheng-alvin/esplanade/server/logging"
 	"github.com/cheng-alvin/esplanade/server/middleware"
-	"github.com/cheng-alvin/esplanade/server/repository"
 	"github.com/cheng-alvin/esplanade/server/router"
 	"go.uber.org/zap"
 )
@@ -47,8 +46,8 @@ func main() {
 
 	mongoDB := esmongo.Database(mongoClient, cfg.MongoDatabase)
 
-	indexCtx, indexCancel := context.WithTimeout(context.Background(), repository.DefaultOperationTimeout)
-	if err = repository.EnsureIndexes(indexCtx, mongoDB, devices.Device{}); err != nil {
+	indexCtx, indexCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if _, err := mongoDB.Collection(devices.DeviceCollection).Indexes().CreateMany(indexCtx, devices.Device{}.Indexes()); err != nil {
 		logger.Fatal("ensuring mongo indexes", zap.Error(err))
 	}
 	indexCancel()
