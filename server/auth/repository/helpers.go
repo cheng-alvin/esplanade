@@ -5,20 +5,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-// first returns the first document, passing through query errors and mapping
-// an empty result to esmongo.ErrNotFound.
-func first[PT any](items []PT, err error) (PT, error) {
-	if err != nil {
-		var zero PT
-		return zero, err
-	}
-	if len(items) == 0 {
-		var zero PT
-		return zero, esmongo.ErrNotFound
-	}
-	return items[0], nil
-}
-
 // objectID parses a hex id, mapping malformed input to esmongo.ErrNotFound.
 func objectID(id string) (bson.ObjectID, error) {
 	oid, err := bson.ObjectIDFromHex(id)
@@ -26,4 +12,10 @@ func objectID(id string) (bson.ObjectID, error) {
 		return bson.ObjectID{}, esmongo.ErrNotFound
 	}
 	return oid, nil
+}
+
+// scoped excludes soft-deleted documents from an audited resource's filter.
+func scoped(filter bson.M) bson.M {
+	filter["deleted_at"] = bson.M{"$exists": false}
+	return filter
 }
