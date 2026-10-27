@@ -17,3 +17,10 @@ func JSON(w http.ResponseWriter, status int, v any) {
 func Error(w http.ResponseWriter, status int, message string) {
 	JSON(w, status, map[string]string{"error": message})
 }
+
+// ErrorCode writes a JSON error response in the form
+// { "error": message, "code": code }. The stable code lets clients react
+// programmatically — e.g. token_expired triggers a silent refresh.
+func ErrorCode(w http.ResponseWriter, status int, code, message string) {
+	JSON(w, status, map[string]string{"error": message, "code": code})
+}
