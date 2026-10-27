@@ -17,8 +17,8 @@ This skill adds new HTTP API endpoints to the Esplanade Go backend
 server located at `server/`. The project follows a two-file pattern:
 **create a handler, register it in the router.** If the endpoint
 touches the database, see `.skills/mongodb-data-access` for how to
-build and wire in a repository — this skill covers the HTTP surface
-only.
+build and wire in Mongo-backed persistence — this skill covers the
+HTTP surface only.
 
 ## Prerequisites
 
@@ -71,10 +71,11 @@ if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 }
 ```
 
-If a handler needs to read or write data, don't reach into the
-database driver directly — build a repository for the resource first
-(`.skills/mongodb-data-access`) and have the handler depend on that
-repository, injected as shown in step 3.
+If a handler needs to read or write data, follow
+`.skills/mongodb-data-access` to build the resource's data layer — a
+store holding a `*mongo.Collection` whose queries are direct driver
+calls — and have the handler depend on a narrow interface to it,
+injected as shown in step 3.
 
 ### 3. Register routes in the router
 
@@ -99,7 +100,7 @@ Open `server/router/router.go`.
 
    Only register the operations the user requested.
 
-   If a handler needs a dependency (a repository, a client, etc.),
+   If a handler needs a dependency (a store, a client, etc.),
    follow the pattern already used for `/readyz` in this file:
    `readyz(mongoClient)` returns an `http.HandlerFunc` closing over
    `mongoClient`. Write your handler the same way — a small
@@ -124,7 +125,7 @@ The Go 1.22+ ServeMux supports these patterns:
 
 - `main.go` — the entrypoint doesn't need to change for a new endpoint,
   unless the handler needs a new dependency constructed at startup
-  (e.g. a repository) and threaded down through `router.New`.
+  (e.g. a store) and threaded down through `router.New`.
 - `middleware/` — middleware is applied globally and automatically; a
   new endpoint doesn't need to opt into request ID, logging, panic
   recovery, or CORS individually.
