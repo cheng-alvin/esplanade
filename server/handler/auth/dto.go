@@ -51,6 +51,15 @@ type resetRequest struct {
 	NewPassword string `json:"new_password"`
 }
 
+type googleRequest struct {
+	IDToken          string `json:"id_token"`
+	DeviceIdentifier string `json:"device_identifier"`
+}
+
+type linkGoogleRequest struct {
+	IDToken string `json:"id_token"`
+}
+
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
 		respond.ErrorCode(w, http.StatusBadRequest, "invalid_request", "invalid request body")
