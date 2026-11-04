@@ -34,9 +34,6 @@ var (
 	// Indicates an access token failed its expiry check.
 	ErrTokenExpired = errors.New("auth: token expired")
 
-	// Indicates a request exceeded an endpoint's rate limit.
-	ErrRateLimited = errors.New("auth: rate limit exceeded")
-
 	// Indicates Google sign-in matched an existing account by email; the
 	// user must sign in and link explicitly instead of being auto-linked.
 	ErrLinkRequired = errors.New("auth: account exists; link required")

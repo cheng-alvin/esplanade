@@ -18,7 +18,6 @@ import (
 	"github.com/cheng-alvin/esplanade/server/config"
 	"github.com/cheng-alvin/esplanade/server/devices"
 	"github.com/cheng-alvin/esplanade/server/email"
-	"github.com/cheng-alvin/esplanade/server/ratelimit"
 	"go.uber.org/zap"
 )
 
@@ -57,7 +56,6 @@ type Deps struct {
 	Emails      email.Sender
 	Google      google.Verifier
 	Issuer      *jwt.Issuer
-	Limiter     *ratelimit.Limiter
 }
 
 // AuthService orchestrates the authentication flows.
@@ -71,7 +69,6 @@ type AuthService struct {
 	emails      email.Sender
 	google      google.Verifier
 	issuer      *jwt.Issuer
-	limiter     *ratelimit.Limiter
 
 	// dummyHash gives the login path a comparable cost when the account or
 	// its password method does not exist (R12).
@@ -90,7 +87,6 @@ func New(deps Deps) *AuthService {
 		emails:      deps.Emails,
 		google:      deps.Google,
 		issuer:      deps.Issuer,
-		limiter:     deps.Limiter,
 		dummyHash:   dummy,
 	}
 }

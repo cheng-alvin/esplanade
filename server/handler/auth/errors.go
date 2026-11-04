@@ -29,8 +29,6 @@ func writeError(w http.ResponseWriter, err error) {
 		respond.ErrorCode(w, http.StatusUnauthorized, "token_expired", "token expired")
 	case errors.Is(err, autherr.ErrTokenInvalid):
 		respond.ErrorCode(w, http.StatusUnauthorized, "invalid_token", "invalid token")
-	case errors.Is(err, autherr.ErrRateLimited):
-		respond.ErrorCode(w, http.StatusTooManyRequests, "rate_limited", "too many requests; try again later")
 	case errors.Is(err, autherr.ErrLinkRequired):
 		respond.ErrorCode(w, http.StatusConflict, "link_required", "an account with that email already exists; sign in and link Google")
 	case errors.Is(err, autherr.ErrGoogleAlreadyLinked):

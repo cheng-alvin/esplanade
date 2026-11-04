@@ -47,8 +47,8 @@ type Config struct {
 	SMTPPassword string `yaml:"smtp_password" env:"SMTP_PASSWORD"`
 	SMTPFrom     string `yaml:"smtp_from" env:"SMTP_FROM"`
 
-	ResendLimit  int           `yaml:"resend_limit" env:"RESEND_LIMIT"`
-	ResendWindow time.Duration `yaml:"resend_window" env:"RESEND_WINDOW"`
+	RateLimitRequests int           `yaml:"rate_limit_requests" env:"RATE_LIMIT_REQUESTS"`
+	RateLimitWindow   time.Duration `yaml:"rate_limit_window" env:"RATE_LIMIT_WINDOW"`
 }
 
 func (c *Config) Addr() string {
@@ -78,7 +78,7 @@ func defaults() *Config {
 
 		SMTPPort: 587,
 
-		ResendLimit:  3,
-		ResendWindow: time.Hour,
+		RateLimitRequests: 100,
+		RateLimitWindow:   time.Minute,
 	}
 }

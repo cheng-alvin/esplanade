@@ -28,16 +28,16 @@ manually).
 | D2 | Package layout follows existing repo conventions (§5). |
 | D3 | Branches are pushed to GitHub; stacked PRs are merged bottom-up. |
 | D4 | **No tests** (`*_test.go`) and **no build/lint/test/gofmt/tidy execution** in this branch group. Write code that compiles first try. |
-| D5 | New dependencies: `github.com/golang-jwt/jwt/v5` v5.3.1, `github.com/coreos/go-oidc/v3` v3.21.0, `golang.org/x/crypto` (argon2), stdlib `net/smtp`. These are declared on the base branch's `go.mod`; the maintainer runs `go mod tidy` locally before building (pre-existing repo gap: stale `go.sum`). |
+| D5 | New dependencies: `github.com/golang-jwt/jwt/v5` v5.3.1, `github.com/coreos/go-oidc/v3` v3.21.0, `golang.org/x/crypto` (argon2), stdlib `net/smtp`; branch 13 adds `github.com/go-chi/httprate` v0.16.1. These are declared in `go.mod`; the maintainer runs `go mod tidy` locally before building (pre-existing repo gap: stale `go.sum`). |
 | R1 | **Strict** refresh-token reuse detection: replay of a rotated-out token revokes **all** of the user's sessions. No grace window. |
 | R2 | A successful password reset revokes all sessions for the user. |
-| R3 | Rate limiter applies to `resend-verification` and `password/forgot` only (in-memory; single-instance assumption; login limiting deferred). |
+| R3 | A general per-IP rate limit (default 100 req/min) applies to every route except `/healthz` and `/readyz` — login included — via global middleware (`github.com/go-chi/httprate`; branch 13 replaces the removed `server/ratelimit`). In-memory, single-instance. |
 | R4 | `sessions` has **no IP field** (the original §3 `ip` mention is dropped). |
 | R5 | `POST /auth/logout` accepts an optional `refresh_token` body field for exact-session deletion; without it, deletes the sessions for the `(user_id, device_id)` from the access token. Always 204 (idempotent). |
 | R6 | `email_verified` exists **only** on `email_auth`. App-level email verification is an email/password-only concept; Google sign-in does **not** gate on Google's `email_verified` claim. `RequireVerifiedEmail` passes when `google_auth` is set **or** `email_auth.email_verified` is `true`. |
 | R7 | Additional indexes: `sessions.refresh_token_hash`, `sessions.previous_token_hash` (sparse), `password_reset_tokens.token_hash`, `password_reset_tokens.user_id`, unique `devices(user_id, identifier)`. |
 | R8 | `POST /auth/register` returns **409** for an existing email (registration is not enumeration-safe; only login / forgot / resend are). |
-| R9 | Constants: verification-token TTL 24h; reset-token TTL 1h; resend cap 3/h; `verification_token.attempts_left` is set to 5 and is **never decremented** this sprint (no code-entry endpoint; the field is reserved for a future one). |
+| R9 | Constants: verification-token TTL 24h; reset-token TTL 1h; `verification_token.attempts_left` is set to 5 and is **never decremented** this sprint (no code-entry endpoint; the field is reserved for a future one). |
 | R11 | `users` is **audited** (the data layer manages `created_at`/`updated_at` and excludes soft-deleted documents directly; soft delete is unused — `status` is the lifecycle field; `User` carries its audit fields directly). `sessions` and `password_reset_tokens` are **lightweight** (no audit fields; hard delete for logout). |
 | R12 | Login performs a dummy password verification when the account is missing or has no email auth, equalizing response timing. |
 
@@ -67,6 +67,7 @@ targets the base):
 | 10 | `password-reset` | Service + handler for `password/forgot` / `password/reset`; router routes. |
 | 11 | `provider-management` | Service + handler for `identities` / `DELETE providers/{provider}`; router routes. |
 | 12 | `google-flows` | Service + handler for `POST /google` / `POST /link/google`; router routes. |
+| 13 | `rate-limiting` | General per-IP rate limit middleware via `go-chi/httprate`; removes `server/ratelimit` (branch 2) and the resend config. |
 
 ## 4. Collections and documents
 
@@ -230,11 +231,10 @@ server/
 │   └── service/                 package service
 ├── email/                       package email (SMTP sender)
 ├── devices/                     package devices
-├── ratelimit/                   package ratelimit
 ```
 
 Existing packages edited: `server/config`, `server/respond`, `server/ctxkey`,
-`server/router`, `server/main.go`.
+`server/router`, `server/middleware`, `server/main.go`.
 
 ## 6. Configuration (branch 2)
 
@@ -255,8 +255,8 @@ All fields follow the existing yaml-tag + `ESPLANADE_`-prefixed env pattern:
 | `SMTPUsername string` | `smtp_username` / `SMTP_USERNAME` | `""` |
 | `SMTPPassword string` | `smtp_password` / `SMTP_PASSWORD` | none (secret) |
 | `SMTPFrom string` | `smtp_from` / `SMTP_FROM` | `""` |
-| `ResendLimit int` | `resend_limit` / `RESEND_LIMIT` | `3` |
-| `ResendWindow time.Duration` | `resend_window` / `RESEND_WINDOW` | `1h` |
+| `RateLimitRequests int` | `rate_limit_requests` / `RATE_LIMIT_REQUESTS` | `100` |
+| `RateLimitWindow time.Duration` | `rate_limit_window` / `RATE_LIMIT_WINDOW` | `1m` |
 
 `config.yaml.example` gains the non-secret fields with comments; secrets stay
 commented out / absent.
@@ -292,7 +292,6 @@ var (
 	ErrEmailAlreadyVerified    = errors.New("auth: email already verified")
 	ErrTokenInvalid            = errors.New("auth: token invalid")
 	ErrTokenExpired            = errors.New("auth: token expired")
-	ErrRateLimited             = errors.New("auth: rate limit exceeded")
 	ErrLinkRequired            = errors.New("auth: account exists; link required")
 	ErrGoogleAlreadyLinked     = errors.New("auth: google account already linked")
 	ErrInvalidGoogleToken      = errors.New("auth: invalid google token")
@@ -451,18 +450,17 @@ func NewSender(cfg *config.Config, logger *zap.Logger) Sender
 - Never log credentials. The dev log sender logs the body (documented as
   development-only convenience).
 
-### 7.8 `server/ratelimit` (branch 2)
+### 7.8 `server/middleware` rate limiting (branch 13; replaces `server/ratelimit`)
 
 ```go
-type Limiter struct{ /* mutex, max, window, hits map[string][]time.Time */ }
-func New(max int, window time.Duration) *Limiter
-
-// Allow records an attempt for key and reports whether it is within the
-// window's cap. Fixed-window per key; expired hits are pruned on access.
-func (l *Limiter) Allow(key string) bool
+// RateLimit caps requests per client IP over a sliding window. Non-positive
+// values fall back to the defaults; health probes are exempt.
+func RateLimit(requests int, window time.Duration) Middleware
 ```
 
-Key convention: `"resend:<email>"`, `"forgot:<email>"` (normalized email).
+`github.com/go-chi/httprate` sliding-window counter, keyed by the canonicalized
+transport-level peer IP (`RemoteAddr`; forwarding headers are not trusted). Over-limit
+requests get `429` `rate_limited` plus `X-RateLimit-*` / `Retry-After` headers.
 In-memory, single instance; documented limitation.
 
 ### 7.9 `server/devices` (branch 4)
@@ -601,7 +599,6 @@ type Deps struct {
 	Emails      email.Sender
 	Google      google.Verifier
 	Issuer      *jwt.Issuer
-	Limiter     *ratelimit.Limiter
 }
 
 func New(deps Deps) *AuthService
@@ -703,7 +700,6 @@ Error mapping helper (`errors.go`) — `writeError(w, err)`:
 | `ErrEmailAlreadyVerified` | 400 | `email_already_verified` |
 | `ErrTokenExpired` | 401 | `token_expired` |
 | `ErrTokenInvalid` | 401 | `invalid_token` |
-| `ErrRateLimited` | 429 | `rate_limited` |
 | `ErrLinkRequired` | 409 | `link_required` |
 | `ErrGoogleAlreadyLinked` | 409 | `google_already_linked` |
 | `ErrInvalidGoogleToken` | 401 | `invalid_google_token` |
@@ -717,6 +713,10 @@ Error mapping helper (`errors.go`) — `writeError(w, err)`:
 Exception: `verify-email` and `password/reset` map `ErrTokenInvalid` to **400**
 `invalid_token` with message "invalid or expired token" before falling through to the
 generic mapper.
+
+`429 rate_limited` no longer originates from a service sentinel: the global
+`middleware.RateLimit` (branch 13) rejects over-limit requests before the handler with the
+same JSON contract (`respond.ErrorCode`).
 
 Generic enumeration-safe message (identical for forgot & unauthenticated resend):
 `"If an account exists for that email address, a message has been sent."`
@@ -758,9 +758,11 @@ routes entirely when `auth.Service == nil` (mirrors the existing `readyz(nil)` p
 
 `main.go` assembly (after `EnsureIndexes`): fatal when `cfg.JWTSecret == ""`; warn when
 `cfg.GoogleClientID == ""`; construct repositories, `devices.Store`, `jwt.Issuer`,
-`jwt.Verifier`, `email.NewSender`, `google.New`, `ratelimit.New`, then
+`jwt.Verifier`, `email.NewSender`, `google.New`, then
 `service.New(service.Deps{...})`, then
 `mux := router.New(mongoClient, router.AuthDeps{Service: authService, Verifier: verifier, Users: userRepo})`.
+The global middleware chain gains `middleware.RateLimit(cfg.RateLimitRequests, cfg.RateLimitWindow)`
+(branch 13), applied after CORS so preflights and 429 headers keep working.
 
 Collection construction via `esmongo.Collection(mongoDB, authrepo.UserCollection)` etc.
 
@@ -854,20 +856,18 @@ consulted for validity.
 ### Resend verification (branch 9)
 
 - **Authenticated**: load user; `EmailAuth == nil` or already verified (including
-  Google-linked per R6) ⇒ `ErrEmailAlreadyVerified`. Rate-limit key
-  `"resend:"+user.Email` ⇒ `ErrRateLimited`. Issue a new token via
+  Google-linked per R6) ⇒ `ErrEmailAlreadyVerified`. Issue a new token via
   `SetVerificationToken` (replaces the token wholesale) + async email.
-- **Unauthenticated**: normalize the submitted email; apply the limiter first
-  (uniformly ⇒ no existence leak); then, when the account exists with an unverified
-  `EmailAuth`, issue + send; always return 200 with the generic message.
+- **Unauthenticated**: normalize the submitted email; the global rate limit runs before
+  the handler (uniformly ⇒ no existence leak); then, when the account exists with an
+  unverified `EmailAuth`, issue + send; always return 200 with the generic message.
 - `attempts_left` remains at its default 5 (R9).
 
 ### Forgot password (branch 10)
 
 1. Normalize email (⇒ 400 `invalid_email` for malformed input).
-2. Limiter key `"forgot:"+email` ⇒ `ErrRateLimited`.
-3. Lookup; missing user or no `EmailAuth` ⇒ return 200 generic (no account probing).
-4. Invalidate all outstanding unused tokens (`InvalidateAllForUser`), insert the new
+2. Lookup; missing user or no `EmailAuth` ⇒ return 200 generic (no account probing).
+3. Invalidate all outstanding unused tokens (`InvalidateAllForUser`), insert the new
    reset token (1h TTL, `PurgeAt = ExpiresAt + PurgeRetention`), async email. 200
    generic.
 
@@ -933,7 +933,7 @@ consulted for validity.
 | Purge retention | 30d past effective expiry/invalidation |
 | Verification token TTL | 24h; `attempts_left` 5 |
 | Password reset token TTL | 1h |
-| Resend rate limit | 3 per hour per email (also applies to forgot) |
+| Rate limit | 100 requests/min per IP, all routes except health probes |
 | Argon2id | m=19456 KiB, t=2, p=1, keyLen=32, salt=16 |
 
 ## 10. Operational notes
@@ -949,9 +949,10 @@ consulted for validity.
 
 ## 11. Deferred / flagged
 
-- Login rate limiting (credential stuffing) — deferred; only resend/forgot limited.
-- In-memory rate limiter — single-instance assumption; a shared store is needed for
-  multi-instance deployments.
+- Per-account login throttling (lockouts, attempt counters) — the general per-IP limit
+  covers login, but distributed credential stuffing needs per-account controls.
+- In-memory rate limiter — single-instance assumption; each replica counts
+  independently, so a shared store is needed for multi-instance deployments.
 - `ResendVerification` manual code entry: no code-entry endpoint exists; `attempts_left`
   cannot be decremented this sprint (documented in R9).
 - `RequireVerifiedEmail` ships without a consumer (future pairing/transfer endpoints).

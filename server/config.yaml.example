@@ -66,6 +66,7 @@ app_base_url: ""
 # smtp_password: ""   # never commit; supply via ESPLANADE_SMTP_PASSWORD
 # smtp_from: "Esplanade <no-reply@example.com>"
 
-# Resend-verification / password-reset request limits.
-resend_limit: 3
-resend_window: 1h
+# General per-IP rate limit applied to every endpoint except the health
+# probes.
+rate_limit_requests: 100
+rate_limit_window: 1m
