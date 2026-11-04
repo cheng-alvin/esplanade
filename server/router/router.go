@@ -50,6 +50,9 @@ func New(mongoClient *mongo.Client, auth AuthDeps) *http.ServeMux {
 
 		mux.HandleFunc("POST /api/v1/auth/password/forgot", authh.ForgotPassword(auth.Service))
 		mux.HandleFunc("POST /api/v1/auth/password/reset", authh.ResetPassword(auth.Service))
+
+		mux.Handle("GET /api/v1/auth/identities", authmw.RequireAuth(auth.Verifier)(authh.Identities(auth.Service)))
+		mux.Handle("DELETE /api/v1/auth/providers/{provider}", authmw.RequireAuth(auth.Verifier)(authh.UnlinkProvider(auth.Service)))
 	}
 
 	return mux
