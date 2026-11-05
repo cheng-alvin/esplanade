@@ -35,9 +35,8 @@ func (s *AuthService) VerifyEmail(ctx context.Context, rawToken string) error {
 
 // ResendVerification reissues a verification token. Authenticated callers
 // resend to their own address; unauthenticated callers submit an address and
-// receive the enumeration-safe response either way. The limiter is applied
-// before any lookup so a rejection cannot reveal whether the account exists,
-// and it is the primary abuse control for this email-sending endpoint (R3).
+// receive the enumeration-safe response either way. The global rate limit runs
+// before the handler, so a rejection cannot reveal whether the account exists.
 func (s *AuthService) ResendVerification(ctx context.Context, userID, email string) error {
 	now := time.Now().UTC()
 
@@ -49,18 +48,12 @@ func (s *AuthService) ResendVerification(ctx context.Context, userID, email stri
 		if user.EmailAuth == nil || user.EmailAuth.EmailVerified || user.GoogleAuth != nil {
 			return autherr.ErrEmailAlreadyVerified
 		}
-		if !s.limiter.Allow("resend:" + user.Email) {
-			return autherr.ErrRateLimited
-		}
 		return s.issueVerification(ctx, user, now)
 	}
 
 	normalized, err := emailprovider.NormalizeEmail(email)
 	if err != nil {
 		return err
-	}
-	if !s.limiter.Allow("resend:" + normalized) {
-		return autherr.ErrRateLimited
 	}
 
 	user, err := s.users.FindByEmail(ctx, normalized)

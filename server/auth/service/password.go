@@ -17,15 +17,11 @@ import (
 )
 
 // ForgotPassword issues a single-use reset token. Responses are identical
-// whether or not the account exists (enumeration-safe), and the limiter runs
-// before any lookup for the same reason.
+// whether or not the account exists (enumeration-safe).
 func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 	normalized, err := emailprovider.NormalizeEmail(email)
 	if err != nil {
 		return err
-	}
-	if !s.limiter.Allow("forgot:" + normalized) {
-		return autherr.ErrRateLimited
 	}
 
 	user, err := s.users.FindByEmail(ctx, normalized)

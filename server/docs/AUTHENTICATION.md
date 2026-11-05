@@ -64,7 +64,6 @@ server/
 │   └── service/             ← AuthService: every flow in one place
 ├── devices/                 ← device-identifier → device ID resolution for sessions
 ├── email/                   ← SMTP sender plus a development log sender
-├── ratelimit/               ← in-memory limiter for email-sending endpoints
 └── router/router.go         ← route registration via router.AuthDeps
 ```
 
@@ -217,21 +216,20 @@ raw token as a manual-entry code. Exchanging the token is:
   or the account is Google-linked.
 - Unauthenticated: submit `{"email": "..."}`. The response is always
   `200 {"message":"If an account exists for that email address, a message has been sent."}`
-  — the rate limiter runs before any lookup, so a rejection cannot leak
+  — the global rate limit runs before the handler, so a rejection cannot leak
   account existence, and a verified or nonexistent account gets the same
   response.
 
-Rate limit: 3 requests per hour per email address (`resend:<email>`); beyond
-that the endpoint returns `429 rate_limited`.
+Rate limit: the general per-IP limit (100 requests/minute by default) applies;
+beyond it the endpoint returns `429 rate_limited`.
 
 ### Forgot password
 
 `POST /api/v1/auth/password/forgot` with `{"email": "..."}`. Responds `200`
 with the same generic message as resend; a malformed address is
-`400 invalid_email`, and the same 3-per-hour limiter applies
-(`forgot:<email>`). Issuing a reset token invalidates all outstanding unused
-tokens for the user. Accounts without an email method get the generic response
-and no mail.
+`400 invalid_email`, and the general per-IP limit applies. Issuing a reset
+token invalidates all outstanding unused tokens for the user. Accounts
+without an email method get the generic response and no mail.
 
 ### Reset password
 
@@ -305,7 +303,6 @@ The handler layer maps service sentinels to HTTP status and `code`
 | `ErrEmailAlreadyVerified`      | 400    | `email_already_verified`   |
 | `ErrTokenExpired`              | 401    | `token_expired`            |
 | `ErrTokenInvalid`              | 401    | `invalid_token`            |
-| `ErrRateLimited`               | 429    | `rate_limited`             |
 | `ErrLinkRequired`              | 409    | `link_required`            |
 | `ErrGoogleAlreadyLinked`       | 409    | `google_already_linked`    |
 | `ErrInvalidGoogleToken`        | 401    | `invalid_google_token`     |
@@ -319,14 +316,15 @@ The handler layer maps service sentinels to HTTP status and `code`
 `verify-email` and `password/reset` map `ErrTokenInvalid` to `400`
 `invalid_token` with "invalid or expired token". A JSON body that fails to
 decode is `400 invalid_request`; the default 500 message never leaks internal
-error text.
+error text. Over-limit requests are rejected earlier by the global rate-limit
+middleware as `429 rate_limited`.
 
 ---
 
 ## Protecting endpoints
 
 Auth middleware wraps individual routes in `router.New`; the global middleware
-chain (RequestID → Logging → Recovery → CORS) is unchanged. To protect a new
+chain is RequestID → Logging → Recovery → CORS → RateLimit. To protect a new
 endpoint, wrap its handler:
 
 ```go
@@ -401,8 +399,8 @@ comments.
 | `SMTPUsername`          | `smtp_username` / `SMTP_USERNAME`                  | `""`                                     |
 | `SMTPPassword`          | `smtp_password` / `SMTP_PASSWORD`                  | none (secret)                            |
 | `SMTPFrom`              | `smtp_from` / `SMTP_FROM`                          | `""`                                     |
-| `ResendLimit`           | `resend_limit` / `RESEND_LIMIT`                    | `3`                                      |
-| `ResendWindow`          | `resend_window` / `RESEND_WINDOW`                  | `1h`                                     |
+| `RateLimitRequests`     | `rate_limit_requests` / `RATE_LIMIT_REQUESTS`      | `100`                                    |
+| `RateLimitWindow`       | `rate_limit_window` / `RATE_LIMIT_WINDOW`          | `1m`                                     |
 
 `JWTSecret` and `SMTPPassword` are secrets: supply them through the
 environment or a secret store, never in a committed file.
@@ -450,16 +448,20 @@ the user's sessions are revoked and the call fails `401 invalid_token`.
 - **Password reset revokes all sessions**, so a reset locks out any session an
   attacker may hold.
 - **Enumeration safety**: forgot and unauthenticated resend return identical
-  responses and run the rate limiter before looking the account up; login is
-  uniform `invalid_credentials`. Register deliberately discloses existing
-  emails (`409 user_exists`) — a documented tradeoff.
+  responses, and the global rate limit runs before the handler looks the
+  account up; login is uniform `invalid_credentials`. Register deliberately
+  discloses existing emails (`409 user_exists`) — a documented tradeoff.
 - **Verification and reset tokens** are stored hashed and are single-use
   (verify is atomic; reset is CAS). Raw tokens appear only in the email — and
   in development, in the log sender output.
-- **Rate limiting** covers `resend-verification` and `password/forgot` (3 per
-  hour per email). It is in-memory and single-instance; a shared store is
-  needed once the server runs more than one replica. Login limiting is not
-  implemented yet.
+- **Rate limiting** is a general per-IP limit (100 requests/minute by default,
+  `rate_limit_requests` / `rate_limit_window`) applied by global middleware to
+  every route except `/healthz` and `/readyz`, using
+  [`go-chi/httprate`](https://github.com/go-chi/httprate). It is in-memory and
+  single-instance: each replica counts independently, so a shared store is
+  needed once the server runs more than one replica. The key is the
+  transport-level peer IP — forwarding headers are not trusted without a proxy
+  trust boundary.
 - **`purge_at` is never consulted for authorization** — validity always reads
   `expires_at` / `revoked_at` / `used_at` explicitly.
 - **Google** ID tokens are verified offline against Google's discovery
@@ -471,8 +473,8 @@ the user's sessions are revoked and the call fails `401 invalid_token`.
 
 ## Deferred and known limitations
 
-- **Login rate limiting** (credential stuffing) — deferred; only resend and
-  forgot are limited.
+- **Per-account login throttling** (credential stuffing) — the general per-IP
+  limit covers login; distributed attacks still need per-account controls.
 - **In-memory rate limiter** — single-instance assumption (above).
 - **Manual code entry** — verification emails include a code, but no
   code-entry endpoint exists yet; `attempts_left` on the pending token is

@@ -19,7 +19,6 @@ import (
 	"github.com/cheng-alvin/esplanade/server/email"
 	"github.com/cheng-alvin/esplanade/server/logging"
 	"github.com/cheng-alvin/esplanade/server/middleware"
-	"github.com/cheng-alvin/esplanade/server/ratelimit"
 	"github.com/cheng-alvin/esplanade/server/router"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.uber.org/zap"
@@ -92,7 +91,6 @@ func main() {
 		Emails:      email.NewSender(cfg, logger),
 		Google:      google.New(cfg.GoogleClientID),
 		Issuer:      jwt.NewIssuer(cfg.JWTSecret, cfg.AccessTokenTTL),
-		Limiter:     ratelimit.New(cfg.ResendLimit, cfg.ResendWindow),
 	})
 
 	mux := router.New(mongoClient, router.AuthDeps{
@@ -106,6 +104,7 @@ func main() {
 		middleware.Logging(logger),
 		middleware.Recovery(logger),
 		middleware.CORS(cfg.CORSOrigins),
+		middleware.RateLimit(cfg.RateLimitRequests, cfg.RateLimitWindow),
 	)
 
 	srv := &http.Server{
