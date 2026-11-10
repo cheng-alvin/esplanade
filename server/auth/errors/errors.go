@@ -17,8 +17,9 @@ var (
 	// Indicates the submitted password does not meet the length policy.
 	ErrWeakPassword = errors.New("auth: password does not meet requirements")
 
-	// Indicates authentication failed. Deliberately does not distinguish an
-	// unknown account from a wrong password.
+	// Indicates authentication failed. Deliberately non-specific: an unknown
+	// account, a wrong password, and any token failure (expired, malformed,
+	// tampered) all report the same error.
 	ErrInvalidCredentials = errors.New("auth: invalid credentials")
 
 	// Indicates the account's email address is not verified.
@@ -26,13 +27,6 @@ var (
 
 	// Indicates verification was requested for an already-verified account.
 	ErrEmailAlreadyVerified = errors.New("auth: email already verified")
-
-	// Indicates a token failed validation, was already consumed, or is
-	// otherwise unusable.
-	ErrTokenInvalid = errors.New("auth: token invalid")
-
-	// Indicates an access token failed its expiry check.
-	ErrTokenExpired = errors.New("auth: token expired")
 
 	// Indicates a request exceeded an endpoint's rate limit.
 	ErrRateLimited = errors.New("auth: rate limit exceeded")

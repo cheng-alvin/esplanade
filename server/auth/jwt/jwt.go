@@ -2,7 +2,6 @@
 package jwt
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -80,25 +79,20 @@ func numericTime(nd *jwtlib.NumericDate) time.Time {
 	return nd.Time
 }
 
-// Verify parses and validates a raw access token. It returns
-// autherr.ErrTokenExpired for an expired token and autherr.ErrTokenInvalid
-// for every other failure (bad signature, malformed, wrong algorithm).
+// Verify parses and validates a raw access token. Every failure — expiry,
+// bad signature, malformed input, wrong algorithm — returns
+// autherr.ErrInvalidCredentials: token failures are deliberately
+// indistinguishable from other authentication failures.
 func (v *Verifier) Verify(raw string) (*Claims, error) {
 	claims := &accessClaims{}
 	parsed, err := jwtlib.ParseWithClaims(raw, claims, func(t *jwtlib.Token) (any, error) {
 		if _, ok := t.Method.(*jwtlib.SigningMethodHMAC); !ok {
-			return nil, autherr.ErrTokenInvalid
+			return nil, autherr.ErrInvalidCredentials
 		}
 		return v.secret, nil
 	}, jwtlib.WithValidMethods([]string{signingMethod}), jwtlib.WithExpirationRequired())
-	if err != nil {
-		if errors.Is(err, jwtlib.ErrTokenExpired) {
-			return nil, autherr.ErrTokenExpired
-		}
-		return nil, autherr.ErrTokenInvalid
-	}
-	if !parsed.Valid {
-		return nil, autherr.ErrTokenInvalid
+	if err != nil || !parsed.Valid {
+		return nil, autherr.ErrInvalidCredentials
 	}
 
 	verified := &Claims{
