@@ -3,12 +3,12 @@
 package email
 
 import (
+	"errors"
 	"fmt"
 	"net/mail"
 	"strings"
 
 	"github.com/alexedwards/argon2id"
-	autherr "github.com/cheng-alvin/esplanade/server/auth/errors"
 )
 
 const (
@@ -23,6 +23,14 @@ const (
 	argonThreads = 1
 	argonKeyLen  = 32
 	saltLen      = 16
+)
+
+var (
+	// Indicates the submitted email is not a valid address.
+	ErrInvalidEmail = errors.New("auth: invalid email address")
+
+	// Indicates the submitted password does not meet the length policy.
+	ErrWeakPassword = errors.New("auth: password does not meet requirements")
 )
 
 // argonParams govern hashing of new credentials. Verification reads the
@@ -42,11 +50,11 @@ var argonParams = &argon2id.Params{
 func NormalizeEmail(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || len(trimmed) > MaxEmailLength {
-		return "", autherr.ErrInvalidEmail
+		return "", ErrInvalidEmail
 	}
 	parsed, err := mail.ParseAddress(trimmed)
 	if err != nil || parsed.Address != trimmed {
-		return "", autherr.ErrInvalidEmail
+		return "", ErrInvalidEmail
 	}
 	return strings.ToLower(parsed.Address), nil
 }
@@ -54,7 +62,7 @@ func NormalizeEmail(raw string) (string, error) {
 // ValidatePassword enforces the password length policy in bytes.
 func ValidatePassword(plain string) error {
 	if len(plain) < MinPasswordLength || len(plain) > MaxPasswordLength {
-		return autherr.ErrWeakPassword
+		return ErrWeakPassword
 	}
 	return nil
 }

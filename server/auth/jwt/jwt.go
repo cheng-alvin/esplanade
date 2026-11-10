@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	autherr "github.com/cheng-alvin/esplanade/server/auth/errors"
+	"github.com/cheng-alvin/esplanade/server/auth"
 	jwtlib "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
@@ -81,18 +81,18 @@ func numericTime(nd *jwtlib.NumericDate) time.Time {
 
 // Verify parses and validates a raw access token. Every failure — expiry,
 // bad signature, malformed input, wrong algorithm — returns
-// autherr.ErrInvalidCredentials: token failures are deliberately
+// auth.ErrInvalidCredentials: token failures are deliberately
 // indistinguishable from other authentication failures.
 func (v *Verifier) Verify(raw string) (*Claims, error) {
 	claims := &accessClaims{}
 	parsed, err := jwtlib.ParseWithClaims(raw, claims, func(t *jwtlib.Token) (any, error) {
 		if _, ok := t.Method.(*jwtlib.SigningMethodHMAC); !ok {
-			return nil, autherr.ErrInvalidCredentials
+			return nil, auth.ErrInvalidCredentials
 		}
 		return v.secret, nil
 	}, jwtlib.WithValidMethods([]string{signingMethod}), jwtlib.WithExpirationRequired())
 	if err != nil || !parsed.Valid {
-		return nil, autherr.ErrInvalidCredentials
+		return nil, auth.ErrInvalidCredentials
 	}
 
 	verified := &Claims{
