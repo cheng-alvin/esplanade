@@ -106,8 +106,8 @@ func (v *Verifier) Verify(raw string) (*Claims, error) {
 		Email:     claims.Email,
 		DeviceID:  claims.DeviceID,
 		JTI:       claims.ID,
-		ExpiresAt: numericTIme(claims.ExpiresAt),
-		IssuedAt:  numericTIme(claims.IssuedAt),
+		ExpiresAt: numericTime(claims.ExpiresAt),
+		IssuedAt:  numericTime(claims.IssuedAt),
 	}
 
 	return verified, nil
