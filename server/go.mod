@@ -3,6 +3,7 @@ module github.com/cheng-alvin/esplanade/server
 go 1.25.0
 
 require (
+	github.com/alexedwards/argon2id v1.0.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
