@@ -5,14 +5,10 @@ package email
 
 import (
 	"context"
-	"crypto/tls"
-	"net"
-	"net/smtp"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/cheng-alvin/esplanade/server/config"
+	"github.com/wneessen/go-mail"
 	"go.uber.org/zap"
 )
 
@@ -46,78 +42,49 @@ type SMTPSender struct {
 }
 
 func (s *SMTPSender) Send(ctx context.Context, to, subject, body string) error {
-	addr := net.JoinHostPort(s.host, strconv.Itoa(s.port))
-	msg := buildMessage(s.from, to, subject, body)
+	msg, err := buildMessage(s.from, to, subject, body)
+	if err != nil {
+		return err
+	}
+	client, err := mail.NewClient(s.host, s.clientOptions()...)
+	if err != nil {
+		return err
+	}
+	return client.DialAndSendWithContext(ctx, msg)
+}
 
-	var auth smtp.Auth
+func (s *SMTPSender) clientOptions() []mail.Option {
+	opts := []mail.Option{
+		mail.WithPort(s.port),
+		mail.WithTimeout(10 * time.Second),
+		// Message bodies carry one-time verification/reset tokens, so a
+		// plaintext fallback is never acceptable.
+		mail.WithTLSPolicy(mail.TLSMandatory),
+	}
 	if s.username != "" {
-		auth = smtp.PlainAuth("", s.username, s.password, s.host)
+		opts = append(opts,
+			mail.WithSMTPAuth(mail.SMTPAuthPlain),
+			mail.WithUsername(s.username),
+			mail.WithPassword(s.password),
+		)
 	}
-
-	// Port 465 speaks TLS from the first byte, so the STARTTLS-aware
-	// smtp.SendMail cannot serve it; the session is driven manually.
 	if s.port == 465 {
-		return s.sendImplicitTLS(addr, auth, to, msg)
+		opts = append(opts, mail.WithSSL())
 	}
-
-	// stdlib SendMail has no context/dialer plumbing, so ctx goes unused
-	// here; the 10s dialer bounds only the implicit-TLS path above.
-	return smtp.SendMail(addr, auth, s.from, []string{to}, msg)
+	return opts
 }
 
-func (s *SMTPSender) sendImplicitTLS(addr string, auth smtp.Auth, to string, msg []byte) error {
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: s.host})
-	if err != nil {
-		return err
+func buildMessage(from, to, subject, body string) (*mail.Msg, error) {
+	msg := mail.NewMsg()
+	if err := msg.From(from); err != nil {
+		return nil, err
 	}
-	client, err := smtp.NewClient(conn, s.host)
-	if err != nil {
-		return err
+	if err := msg.To(to); err != nil {
+		return nil, err
 	}
-	defer client.Close()
-
-	if auth != nil {
-		if err := client.Auth(auth); err != nil {
-			return err
-		}
-	}
-	if err := client.Mail(s.from); err != nil {
-		return err
-	}
-	if err := client.Rcpt(to); err != nil {
-		return err
-	}
-	w, err := client.Data()
-	if err != nil {
-		return err
-	}
-	if _, err := w.Write(msg); err != nil {
-		w.Close()
-		return err
-	}
-	if err := w.Close(); err != nil {
-		return err
-	}
-	return client.Quit()
-}
-
-func buildMessage(from, to, subject, body string) []byte {
-	var b strings.Builder
-	b.WriteString("From: ")
-	b.WriteString(from)
-	b.WriteString("\r\n")
-	b.WriteString("To: ")
-	b.WriteString(to)
-	b.WriteString("\r\n")
-	b.WriteString("Subject: ")
-	b.WriteString(subject)
-	b.WriteString("\r\n")
-	b.WriteString("MIME-Version: 1.0\r\n")
-	b.WriteString("Content-Type: text/plain; charset=\"utf-8\"\r\n")
-	b.WriteString("\r\n")
-	b.WriteString(body)
-	return []byte(b.String())
+	msg.Subject(subject)
+	msg.SetBodyString(mail.TypeTextPlain, body)
+	return msg, nil
 }
 
 // LogSender is a development-only stand-in for SMTP: it logs the message body

@@ -441,13 +441,13 @@ type Sender interface {
 func NewSender(cfg *config.Config, logger *zap.Logger) Sender
 ```
 
-- SMTP message: `From:`, `To:`, `Subject:`, `MIME-Version: 1.0`,
-  `Content-Type: text/plain; charset="utf-8"` headers, CRLF line endings, blank line,
-  body.
-- `smtp.PlainAuth("", username, password, host)` only when username is non-empty.
-- Port 465: `tls.Dial` + `smtp.NewClient` + `Auth` + `Mail/Rcpt/Data`.
-  Other ports: `smtp.SendMail(host:port, auth, from, []string{to}, msg)` (handles
-  STARTTLS when advertised). 10s dial timeout.
+- Library: `github.com/wneessen/go-mail` builds the MIME message
+  (`mail.NewMsg`, `text/plain` body) and drives the SMTP session via
+  `DialAndSendWithContext`.
+- `mail.SMTPAuthPlain` only when username is non-empty.
+- Port 465: implicit TLS (`mail.WithSSL`). Other ports: STARTTLS is mandatory
+  (`mail.TLSMandatory`) — bodies carry one-time tokens, so no plaintext
+  fallback. 10s connection timeout.
 - Never log credentials. The dev log sender logs the body (documented as
   development-only convenience).
 
