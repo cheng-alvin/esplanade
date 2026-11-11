@@ -236,6 +236,11 @@ Never let a raw `mongo.CommandError` or similar reach the handler layer
 or a response body — that leaks driver internals (and sometimes index
 names) to the client.
 
+This per-package ownership is the repo-wide convention for sentinel
+errors: each sentinel is declared by the package that owns the behaviour
+it represents (as `db/mongo` does here, and `auth.ErrInvalidCredentials`
+does for auth), never in a central errors package.
+
 ## Security rules
 
 These are non-negotiable, not stylistic preferences:

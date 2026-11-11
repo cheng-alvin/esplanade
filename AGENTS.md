@@ -68,6 +68,9 @@ local-first or E2E guarantees.
   package.
 - Route Mongo errors through `db/mongo/errors.go`'s `TranslateError()` rather than
   checking `mongo.Is...` directly.
+- Sentinel errors belong to the package that owns the behaviour they represent
+  (`auth.ErrInvalidCredentials`, `esmongo.ErrNotFound`) — no central errors package,
+  and no names that repeat the package (`AuthErr...`). Compare with `errors.Is`.
 - Known build gap: `go.sum` needs a local `go mod tidy` before the server compiles
   cleanly; no test scaffolding exists yet.
 
