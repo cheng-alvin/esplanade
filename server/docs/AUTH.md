@@ -29,6 +29,7 @@ manually).
 | D3 | Branches are pushed to GitHub; stacked PRs are merged bottom-up. |
 | D4 | **No tests** (`*_test.go`) and **no build/lint/test/gofmt/tidy execution** in this branch group. Write code that compiles first try. |
 | D5 | New dependencies: `github.com/golang-jwt/jwt/v5` v5.3.1, `github.com/coreos/go-oidc/v3` v3.21.0, `golang.org/x/crypto` (argon2), stdlib `net/smtp`. These are declared on the base branch's `go.mod`; the maintainer runs `go mod tidy` locally before building (pre-existing repo gap: stale `go.sum`). |
+| D6 | Sentinel errors are declared by the package that owns the behaviour they represent — never a central errors package, and names never repeat the package (`auth.ErrInvalidCredentials`, not `AuthErrInvalidCredentials`). Authentication failures are deliberately non-specific: `auth.ErrInvalidCredentials` covers an unknown account, a wrong password, and every access-token failure (expired, malformed, tampered, wrong algorithm). |
 | R1 | **Strict** refresh-token reuse detection: replay of a rotated-out token revokes **all** of the user's sessions. No grace window. |
 | R2 | A successful password reset revokes all sessions for the user. |
 | R3 | Rate limiter applies to `resend-verification` and `password/forgot` only (in-memory; single-instance assumption; login limiting deferred). |
@@ -56,7 +57,7 @@ targets the base):
 | # | Branch | Contents |
 |---|--------|----------|
 | 1 | `repository-write-ops` | **Closed** — the repository abstraction was removed; the batch update/delete operations are implemented as direct driver calls in the data layer (§7.1). |
-| 2 | `foundation` | Config additions (§6); `server/auth/errors`; `server/auth/token`; `server/auth/jwt`; `server/auth/providers/email`; `server/ratelimit`. |
+| 2 | `foundation` | Config additions (§6); auth-wide sentinel errors (`server/auth/errors.go`); `server/auth/token`; `server/auth/jwt`; `server/auth/providers/email`; `server/ratelimit`. |
 | 3 | `google-verifier` | `server/auth/providers/google`. |
 | 4 | `device-package` | `server/devices`; `main.go` ensures the devices indexes. |
 | 5 | `data-layer` | `server/auth/repository` (User, Session, PasswordResetToken: documents, indexes, typed queries); `main.go` ensures the three auth collections' indexes. |
@@ -220,7 +221,7 @@ Index: unique compound `{user_id: 1, identifier: 1}`.
 server/
 ├── handler/auth/                package auth   (conventionally aliased `authh`)
 ├── auth/
-│   ├── errors/                  package errors (conventionally aliased `autherr`)
+│   ├── errors.go                package auth — sentinels shared across the module
 │   ├── jwt/                     package jwt
 │   ├── token/                   package token
 │   ├── middleware/              package middleware (conventionally aliased `authmw`)
@@ -279,29 +280,27 @@ Audit semantics are preserved: audited filters exclude soft-deleted
 documents, audited updates bump `updated_at`, and driver errors are routed
 through `esmongo.TranslateError`.
 
-### 7.2 `server/auth/errors` (branch 2)
+### 7.2 Sentinel errors (branch 2)
+
+Sentinel errors are declared by the package that owns the behaviour or contract
+they represent — there is no central errors package, and names do not repeat the
+package they live in. Branch 2 declares:
 
 ```go
-var (
-	ErrUserExists              = errors.New("auth: user already exists")
-	ErrUserNotFound            = errors.New("auth: user not found")
-	ErrInvalidEmail            = errors.New("auth: invalid email address")
-	ErrWeakPassword            = errors.New("auth: password does not meet requirements")
-	ErrInvalidCredentials      = errors.New("auth: invalid credentials")
-	ErrEmailNotVerified        = errors.New("auth: email not verified")
-	ErrEmailAlreadyVerified    = errors.New("auth: email already verified")
-	ErrTokenInvalid            = errors.New("auth: token invalid")
-	ErrTokenExpired            = errors.New("auth: token expired")
-	ErrRateLimited             = errors.New("auth: rate limit exceeded")
-	ErrLinkRequired            = errors.New("auth: account exists; link required")
-	ErrGoogleAlreadyLinked     = errors.New("auth: google account already linked")
-	ErrInvalidGoogleToken      = errors.New("auth: invalid google token")
-	ErrProviderNotFound        = errors.New("auth: provider not linked")
-	ErrLastAuthMethod          = errors.New("auth: cannot remove the only sign-in method")
-	ErrUnsupportedProvider     = errors.New("auth: unsupported provider")
-	ErrInvalidDeviceIdentifier = errors.New("auth: invalid device identifier")
-)
+// server/auth/errors.go — package auth
+var ErrInvalidCredentials = errors.New("auth: invalid credentials")
+
+// server/auth/providers/email/email.go — package email
+var ErrInvalidEmail = errors.New("auth: invalid email address")
+var ErrWeakPassword = errors.New("auth: password does not meet requirements")
 ```
+
+`ErrInvalidCredentials` is deliberately non-specific: an unknown account, a
+wrong password, and any access-token failure (expired, malformed, tampered,
+wrong algorithm) all report it, so the nature of the failure is not disclosed.
+Later branches declare their remaining sentinels in the package that raises them
+(e.g. `devices.ErrInvalidDeviceIdentifier` in §7.9); §7.14 lists the handler
+mapping.
 
 ### 7.3 `server/auth/token` (branch 2)
 
@@ -336,9 +335,9 @@ func (i *Issuer) Issue(userID, email, deviceID string) (string, int, error)
 type Verifier struct{ /* secret []byte */ }
 func NewVerifier(secret string) *Verifier
 
-// Verify returns autherr.ErrTokenExpired for an expired token and
-// autherr.ErrTokenInvalid for anything else (bad signature, malformed,
-// wrong algorithm).
+// Verify returns auth.ErrInvalidCredentials for every failure: expiry, bad
+// signature, malformed input, and wrong algorithm are deliberately
+// indistinguishable.
 func (v *Verifier) Verify(raw string) (*Claims, error)
 ```
 
@@ -356,11 +355,10 @@ type claims struct {
 //   IssuedAt: jwtlib.NewNumericDate(now), ExpiresAt: jwtlib.NewNumericDate(now.Add(ttl)),
 //   ID: uuid.NewString()}}; jwtlib.NewWithClaims(jwtlib.SigningMethodHS256, c).SignedString(secret)
 // Verify: jwtlib.ParseWithClaims(raw, &claims{}, func(t *jwtlib.Token) (any, error) {
-//   if _, ok := t.Method.(*jwtlib.SigningMethodHMAC); !ok { return nil, autherr.ErrTokenInvalid }
+//   if _, ok := t.Method.(*jwtlib.SigningMethodHMAC); !ok { return nil, auth.ErrInvalidCredentials }
 //   return secret, nil
 // }, jwtlib.WithValidMethods([]string{"HS256"}))
-//   - errors.Is(err, jwtlib.ErrTokenExpired)  -> autherr.ErrTokenExpired
-//   - other err / !token.Valid                -> autherr.ErrTokenInvalid
+//   - parse error or !token.Valid -> auth.ErrInvalidCredentials
 ```
 
 `jti` uses `github.com/google/uuid` (already in the module graph).
@@ -377,10 +375,10 @@ const (
 
 // NormalizeEmail trims, lowercases, validates via net/mail.ParseAddress and
 // returns the bare address. Display-name forms ("Name <a@b>") and inputs
-// longer than MaxEmailLength are rejected with a non-nil error.
+// longer than MaxEmailLength are rejected with ErrInvalidEmail.
 func NormalizeEmail(raw string) (string, error)
 
-// ValidatePassword enforces 8..128 bytes.
+// ValidatePassword enforces 8..128 bytes, returning ErrWeakPassword otherwise.
 func ValidatePassword(plain string) error
 
 // HashPassword returns a PHC-format argon2id string:
@@ -424,7 +422,8 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawIDToken string) (*Identity
 - `Verify` uses `verifier.Verify(ctx, rawIDToken)` then `idToken.Claims(&claims)` with
   `var claims struct { Email string `json:"email"`; EmailVerified bool `json:"email_verified"`; Name string `json:"name"`; Picture string `json:"picture"` }`.
 - Failure semantics: **token-level** failures (verify error, claims decode, empty
-  subject) return `autherr.ErrTokenInvalid` (wrapped with detail). Discovery/network
+  subject) return `auth.ErrInvalidCredentials` (wrapped with detail) — the same
+  deliberately non-specific error as every other token failure. Discovery/network
   failures return the raw wrapped error (the service maps that to a 500).
 - Library: `github.com/coreos/go-oidc/v3/oidc`.
 
@@ -493,7 +492,7 @@ func NewStore(collection *mongo.Collection) *Store
 // FindOrRegister returns the stable device ID for (userID, identifier),
 // inserting a new devices document when none exists. On a duplicate-key race
 // (esmongo.ErrConflict) it re-reads and returns the existing ID. Invalid
-// identifiers return autherr.ErrInvalidDeviceIdentifier.
+// identifiers return devices.ErrInvalidDeviceIdentifier.
 func (s *Store) FindOrRegister(ctx context.Context, userID bson.ObjectID, identifier string) (bson.ObjectID, error)
 ```
 
@@ -665,15 +664,15 @@ func DeviceIDFrom(ctx context.Context) (string, bool)
 
 - Parses `Authorization: Bearer <token>` (case-insensitive `bearer` via
   `strings.Fields`; anything else is malformed).
-- `RequireAuth`: missing/malformed ⇒ 401 `invalid_token` "authentication required";
-  `autherr.ErrTokenExpired` ⇒ 401 `token_expired`; invalid ⇒ 401 `invalid_token`.
+- `RequireAuth`: missing/malformed or any verification failure
+  (`auth.ErrInvalidCredentials`) ⇒ 401 `invalid_credentials`.
   Injects `UserID`/`DeviceID` into the context.
 - `OptionalAuth`: absent header ⇒ continue unauthenticated; present but invalid ⇒ 401
   (fail closed).
 - `RequireVerifiedEmail`: reads `UserID` from the context (must be stacked on
   `RequireAuth`), loads the user, passes when `GoogleAuth != nil` or
   `EmailAuth.EmailVerified` (R6); otherwise 403 `email_not_verified`. On
-  `esmongo.ErrNotFound` ⇒ 401 `invalid_token`; other errors ⇒ 500 `internal_error`.
+  `esmongo.ErrNotFound` ⇒ 401 `invalid_credentials`; other errors ⇒ 500 `internal_error`.
   Ships without a consumer this sprint (future pairing/transfer endpoints).
 
 ### 7.13 `server/respond` (branch 8)
@@ -691,18 +690,19 @@ Package `auth`; conventionally imported as `authh`. Handler constructors take
 `*service.AuthService` and return `http.HandlerFunc`. All responses go through
 `respond`. `r.UserAgent()` is truncated to 512 bytes before use.
 
-Error mapping helper (`errors.go`) — `writeError(w, err)`:
+Error mapping helper (`errors.go`) — `writeError(w, err)`. Sentinels are declared
+by the package that owns the behaviour: `auth.ErrInvalidCredentials` (auth),
+`emailprovider.ErrInvalidEmail` / `emailprovider.ErrWeakPassword` (email provider),
+the flow sentinels in `service`, and `devices.ErrInvalidDeviceIdentifier`:
 
 | Error | Status | code |
 |---|---|---|
 | `ErrUserExists` | 409 | `user_exists` |
-| `ErrInvalidEmail` | 400 | `invalid_email` |
-| `ErrWeakPassword` | 400 | `weak_password` |
-| `ErrInvalidCredentials` | 401 | `invalid_credentials` |
+| `emailprovider.ErrInvalidEmail` | 400 | `invalid_email` |
+| `emailprovider.ErrWeakPassword` | 400 | `weak_password` |
+| `auth.ErrInvalidCredentials` | 401 | `invalid_credentials` |
 | `ErrEmailNotVerified` | 403 | `email_not_verified` |
 | `ErrEmailAlreadyVerified` | 400 | `email_already_verified` |
-| `ErrTokenExpired` | 401 | `token_expired` |
-| `ErrTokenInvalid` | 401 | `invalid_token` |
 | `ErrRateLimited` | 429 | `rate_limited` |
 | `ErrLinkRequired` | 409 | `link_required` |
 | `ErrGoogleAlreadyLinked` | 409 | `google_already_linked` |
@@ -714,9 +714,11 @@ Error mapping helper (`errors.go`) — `writeError(w, err)`:
 | `ErrUserNotFound`, `esmongo.ErrNotFound` | 404 | `not_found` |
 | default | 500 | `internal_error` ("internal server error"; never leak `err.Error()`) |
 
-Exception: `verify-email` and `password/reset` map `ErrTokenInvalid` to **400**
-`invalid_token` with message "invalid or expired token" before falling through to the
-generic mapper.
+`auth.ErrInvalidCredentials` covers login failures and every access-token and
+refresh-token failure: there are no separate `token_expired` / `invalid_token`
+codes. Exception: `verify-email` and `password/reset` map their token failures
+(`auth.ErrInvalidCredentials`) to **400** `invalid_token` with message "invalid or
+expired token" before falling through to the generic mapper.
 
 Generic enumeration-safe message (identical for forgot & unauthenticated resend):
 `"If an account exists for that email address, a message has been sent."`
@@ -811,17 +813,18 @@ set; branches 9–12 append theirs):
 
 1. `hash := token.Hash(raw)`; `FindByRefreshTokenHash`.
 2. **Case A** — hash matches the current token: require `RevokedAt == nil` and
-   `ExpiresAt.After(now)` (explicit checks; found-but-invalid ⇒ 401 `ErrTokenInvalid`,
-   no state change). Load the user (missing / not active ⇒ `Revoke` session with reason
-   `user_inactive`, `ErrTokenInvalid`). Generate a new refresh token; `Rotate` (CAS):
+   `ExpiresAt.After(now)` (explicit checks; found-but-invalid ⇒ 401
+   `auth.ErrInvalidCredentials`, no state change). Load the user (missing / not active
+   ⇒ `Revoke` session with reason `user_inactive`, `auth.ErrInvalidCredentials`).
+   Generate a new refresh token; `Rotate` (CAS):
    `ExpiresAt = now + RefreshTokenTTL`, `PurgeAt = ExpiresAt + PurgeRetention`.
    Rotation CAS miss ⇒ re-classify (see step 4). Issue a fresh access token from the
    current user row and session device. Return the new pair.
 3. **Case B** — hash matches `previous_token_hash` of a session (or step 2's CAS miss
    re-classifies to this): **reuse detected** — `Revoke(session, "reuse_detected", now+PurgeRetention)`
    and `RevokeAllForUser(userID, "reuse_detected", now+PurgeRetention)`; return
-   `ErrTokenInvalid`.
-4. **Case C** — neither: `ErrTokenInvalid`, no state changes.
+   `auth.ErrInvalidCredentials`.
+4. **Case C** — neither: `auth.ErrInvalidCredentials`, no state changes.
 
 Authorization checks always read `ExpiresAt`/`RevokedAt` explicitly; `PurgeAt` is never
 consulted for validity.
@@ -844,8 +847,8 @@ consulted for validity.
 
 ### Verify email (branch 9)
 
-1. Hash the incoming token; `FindByVerificationTokenHash` — miss ⇒ `ErrTokenInvalid`.
-2. Token `ExpiresAt.After(now)` must hold (explicit) ⇒ else `ErrTokenInvalid`.
+1. Hash the incoming token; `FindByVerificationTokenHash` — miss ⇒ `auth.ErrInvalidCredentials`.
+2. Token `ExpiresAt.After(now)` must hold (explicit) ⇒ else `auth.ErrInvalidCredentials`.
 3. `MarkEmailVerified` (single atomic update: `email_verified=true`, unset
    `verification_token`). A consumed token no longer resolves — a second click is
    indistinguishable from garbage (accepted tradeoff).
@@ -874,10 +877,10 @@ consulted for validity.
 ### Reset password (branch 10)
 
 1. `ValidatePassword(new)` ⇒ `ErrWeakPassword`.
-2. Hash; `FindByTokenHash` ⇒ miss ⇒ `ErrTokenInvalid`.
-3. `UsedAt != nil` or expired (explicit) ⇒ `ErrTokenInvalid`.
-4. Load user; missing or `EmailAuth == nil` ⇒ `ErrTokenInvalid`.
-5. `MarkUsed` CAS — false ⇒ `ErrTokenInvalid` (double-submit safe).
+2. Hash; `FindByTokenHash` ⇒ miss ⇒ `auth.ErrInvalidCredentials`.
+3. `UsedAt != nil` or expired (explicit) ⇒ `auth.ErrInvalidCredentials`.
+4. Load user; missing or `EmailAuth == nil` ⇒ `auth.ErrInvalidCredentials`.
+5. `MarkUsed` CAS — false ⇒ `auth.ErrInvalidCredentials` (double-submit safe).
 6. `SetPasswordHash`; `RevokeAllForUser(userID, "password_reset", now+PurgeRetention)`
    (R2).
 7. 200 `{"status":"password_reset"}`.

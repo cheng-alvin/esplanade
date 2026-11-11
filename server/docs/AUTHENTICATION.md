@@ -54,7 +54,7 @@ Persisted credentials carry two clock fields with different jobs:
 server/
 ├── handler/auth/            ← handlers, DTOs, and error mapping (imported as authh)
 ├── auth/
-│   ├── errors/              ← sentinel errors shared by service and handlers (autherr)
+│   ├── errors.go            ← auth-wide sentinel errors (package auth)
 │   ├── jwt/                 ← HS256 access-token issuer and verifier
 │   ├── token/               ← opaque token generation and SHA-256 hashing
 │   ├── middleware/          ← RequireAuth / OptionalAuth / RequireVerifiedEmail (authmw)
@@ -120,11 +120,14 @@ Success bodies use three shapes:
 `respond.ErrorCode` envelope:
 
 ```json
-{ "error": "invalid token", "code": "invalid_token" }
+{ "error": "invalid credentials", "code": "invalid_credentials" }
 ```
 
-The `code` is stable and meant for programmatic handling — e.g. a client can
-treat `token_expired` as "refresh and retry".
+Codes are stable and meant for programmatic handling. Authentication failures
+are deliberately non-specific: unknown accounts, wrong passwords, expired or
+bad access tokens, and failed refreshes all surface as
+`401 invalid_credentials` — a client responds by refreshing once and falling
+back to signing in.
 
 ### Register
 
@@ -168,7 +171,7 @@ verification, so response timing doesn't reveal whether the account exists.
 ```
 
 Responds `200` with a new pair and rotates the stored hash. All of these
-return `401 invalid_token`:
+return `401 invalid_credentials`:
 
 - the token is unknown or its session has expired,
 - the session was revoked,
@@ -292,19 +295,19 @@ from the account email; both are kept.
 
 ### Error mapping
 
-The handler layer maps service sentinels to HTTP status and `code`
-(`server/handler/auth/errors.go`):
+The handler layer maps sentinels to HTTP status and `code`
+(`server/handler/auth/errors.go`). Each sentinel is declared by the package
+that owns the behaviour (`auth.ErrInvalidCredentials`,
+`emailprovider.ErrInvalidEmail`, the `service` flow errors):
 
 | Error                          | Status | code                       |
 | ------------------------------ | ------ | -------------------------- |
 | `ErrUserExists`                | 409    | `user_exists`              |
-| `ErrInvalidEmail`              | 400    | `invalid_email`            |
-| `ErrWeakPassword`              | 400    | `weak_password`            |
-| `ErrInvalidCredentials`        | 401    | `invalid_credentials`      |
+| `emailprovider.ErrInvalidEmail` | 400   | `invalid_email`            |
+| `emailprovider.ErrWeakPassword` | 400   | `weak_password`            |
+| `auth.ErrInvalidCredentials`   | 401    | `invalid_credentials`      |
 | `ErrEmailNotVerified`          | 403    | `email_not_verified`       |
 | `ErrEmailAlreadyVerified`      | 400    | `email_already_verified`   |
-| `ErrTokenExpired`              | 401    | `token_expired`            |
-| `ErrTokenInvalid`              | 401    | `invalid_token`            |
 | `ErrRateLimited`               | 429    | `rate_limited`             |
 | `ErrLinkRequired`              | 409    | `link_required`            |
 | `ErrGoogleAlreadyLinked`       | 409    | `google_already_linked`    |
@@ -316,10 +319,12 @@ The handler layer maps service sentinels to HTTP status and `code`
 | user not found                 | 404    | `not_found`                |
 | anything else                  | 500    | `internal_error`           |
 
-`verify-email` and `password/reset` map `ErrTokenInvalid` to `400`
-`invalid_token` with "invalid or expired token". A JSON body that fails to
-decode is `400 invalid_request`; the default 500 message never leaks internal
-error text.
+`auth.ErrInvalidCredentials` covers login failures and every access-token and
+refresh-token failure — there are no separate `token_expired` / `invalid_token`
+codes. Exception: `verify-email` and `password/reset` report their token
+failures as `400 invalid_token` ("invalid or expired token"). A JSON body that
+fails to decode is `400 invalid_request`; the default 500 message never leaks
+internal error text.
 
 ---
 
@@ -337,10 +342,9 @@ mux.Handle("POST /api/v1/transfers",
 ```
 
 - `RequireAuth(verifier)` — requires `Authorization: Bearer <access token>`
-  (scheme case-insensitive). Missing or malformed → `401 invalid_token`
-  "authentication required"; expired → `401 token_expired`; anything else
-  invalid → `401 invalid_token`. On success it injects the user and device
-  IDs into the request context.
+  (scheme case-insensitive). Missing, malformed, expired, or otherwise invalid
+  → `401 invalid_credentials`: the failure is deliberately uniform. On success
+  it injects the user and device IDs into the request context.
 - `OptionalAuth(verifier)` — continues without a token, but a present and
   invalid token still fails closed with `401`.
 - `RequireVerifiedEmail(users)` — must be stacked on `RequireAuth`. It passes
@@ -430,7 +434,7 @@ curl -s http://localhost:8080/api/v1/auth/refresh \
 ```
 
 Calling refresh again with that same old token demonstrates reuse detection:
-the user's sessions are revoked and the call fails `401 invalid_token`.
+the user's sessions are revoked and the call fails `401 invalid_credentials`.
 
 ---
 
@@ -450,9 +454,10 @@ the user's sessions are revoked and the call fails `401 invalid_token`.
 - **Password reset revokes all sessions**, so a reset locks out any session an
   attacker may hold.
 - **Enumeration safety**: forgot and unauthenticated resend return identical
-  responses and run the rate limiter before looking the account up; login is
-  uniform `invalid_credentials`. Register deliberately discloses existing
-  emails (`409 user_exists`) — a documented tradeoff.
+  responses and run the rate limiter before looking the account up; login,
+  refresh, and access-token failures are uniformly `invalid_credentials`.
+  Register deliberately discloses existing emails (`409 user_exists`) — a
+  documented tradeoff.
 - **Verification and reset tokens** are stored hashed and are single-use
   (verify is atomic; reset is CAS). Raw tokens appear only in the email — and
   in development, in the log sender output.
