@@ -9,12 +9,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cheng-alvin/esplanade/server/auth/jwt"
+	"github.com/cheng-alvin/esplanade/server/auth/providers/google"
 	authrepo "github.com/cheng-alvin/esplanade/server/auth/repository"
+	"github.com/cheng-alvin/esplanade/server/auth/service"
 	"github.com/cheng-alvin/esplanade/server/config"
 	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
 	"github.com/cheng-alvin/esplanade/server/devices"
+	"github.com/cheng-alvin/esplanade/server/email"
 	"github.com/cheng-alvin/esplanade/server/logging"
 	"github.com/cheng-alvin/esplanade/server/middleware"
+	"github.com/cheng-alvin/esplanade/server/ratelimit"
 	"github.com/cheng-alvin/esplanade/server/router"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.uber.org/zap"
@@ -65,7 +70,36 @@ func main() {
 	}
 	indexCancel()
 
-	mux := router.New(mongoClient)
+	if cfg.JWTSecret == "" {
+		logger.Fatal("JWT secret not configured", zap.String("env_var", "ESPLANADE_JWT_SECRET"))
+	}
+	if cfg.GoogleClientID == "" {
+		logger.Warn("google client id not configured; google sign-in will be unavailable")
+	}
+
+	userRepo := authrepo.NewUserRepository(esmongo.Collection(mongoDB, authrepo.UserCollection))
+	sessionRepo := authrepo.NewSessionRepository(esmongo.Collection(mongoDB, authrepo.SessionCollection))
+	resetRepo := authrepo.NewPasswordResetRepository(esmongo.Collection(mongoDB, authrepo.PasswordResetCollection))
+	deviceStore := devices.NewStore(esmongo.Collection(mongoDB, devices.DeviceCollection))
+
+	authService := service.New(service.Deps{
+		Config:      cfg,
+		Logger:      logger,
+		Users:       userRepo,
+		Sessions:    sessionRepo,
+		ResetTokens: resetRepo,
+		Devices:     deviceStore,
+		Emails:      email.NewSender(cfg, logger),
+		Google:      google.New(cfg.GoogleClientID),
+		Issuer:      jwt.NewIssuer(cfg.JWTSecret, cfg.AccessTokenTTL),
+		Limiter:     ratelimit.New(cfg.ResendLimit, cfg.ResendWindow),
+	})
+
+	mux := router.New(mongoClient, router.AuthDeps{
+		Service:  authService,
+		Verifier: jwt.NewVerifier(cfg.JWTSecret),
+		Users:    userRepo,
+	})
 	handler := middleware.Chain(
 		mux,
 		middleware.RequestID,

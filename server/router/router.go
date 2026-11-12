@@ -5,7 +5,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cheng-alvin/esplanade/server/auth/jwt"
+	authmw "github.com/cheng-alvin/esplanade/server/auth/middleware"
+	authrepo "github.com/cheng-alvin/esplanade/server/auth/repository"
+	"github.com/cheng-alvin/esplanade/server/auth/service"
 	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
+	authh "github.com/cheng-alvin/esplanade/server/handler/auth"
 	"github.com/cheng-alvin/esplanade/server/respond"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -15,20 +20,31 @@ import (
 // rather than hang.
 const readinessTimeout = 2 * time.Second
 
+// AuthDeps are the auth collaborators the router wires into routes. A zero
+// value (nil Service) skips auth route registration, mirroring readyz(nil).
+type AuthDeps struct {
+	Service  *service.AuthService
+	Verifier *jwt.Verifier
+	Users    *authrepo.UserRepository
+}
+
 // New returns a fully configured *http.ServeMux with all application
 // routes registered. mongoClient backs the /readyz endpoint's database
 // check; pass nil to omit that check.
-//
-// To add a new route, create a handler package under handler/
-// and register it here.  Example:
-//
-//	mux.HandleFunc("GET /api/v1/widgets", widgets.List)
-//	mux.HandleFunc("POST /api/v1/widgets", widgets.Create)
-func New(mongoClient *mongo.Client) *http.ServeMux {
+func New(mongoClient *mongo.Client, auth AuthDeps) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", healthz)
 	mux.HandleFunc("GET /readyz", readyz(mongoClient))
+
+	if auth.Service != nil {
+		mux.HandleFunc("POST /api/v1/auth/register", authh.Register(auth.Service))
+		mux.HandleFunc("POST /api/v1/auth/login", authh.Login(auth.Service))
+		mux.HandleFunc("POST /api/v1/auth/refresh", authh.Refresh(auth.Service))
+		mux.Handle("POST /api/v1/auth/logout", authmw.RequireAuth(auth.Verifier)(authh.Logout(auth.Service)))
+		mux.Handle("POST /api/v1/auth/logout-all", authmw.RequireAuth(auth.Verifier)(authh.LogoutAll(auth.Service)))
+		mux.Handle("GET /api/v1/auth/me", authmw.RequireAuth(auth.Verifier)(authh.Me(auth.Service)))
+	}
 
 	return mux
 }
