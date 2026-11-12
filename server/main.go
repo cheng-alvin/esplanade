@@ -11,6 +11,7 @@ import (
 
 	"github.com/cheng-alvin/esplanade/server/config"
 	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
+	"github.com/cheng-alvin/esplanade/server/devices"
 	"github.com/cheng-alvin/esplanade/server/logging"
 	"github.com/cheng-alvin/esplanade/server/middleware"
 	"github.com/cheng-alvin/esplanade/server/router"
@@ -42,6 +43,14 @@ func main() {
 		logger.Fatal("connecting to mongo", zap.Error(err))
 	}
 	logger.Info("connected to mongo", zap.String("database", cfg.MongoDatabase))
+
+	mongoDB := esmongo.Database(mongoClient, cfg.MongoDatabase)
+
+	indexCtx, indexCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if _, err := mongoDB.Collection(devices.DeviceCollection).Indexes().CreateMany(indexCtx, devices.Device{}.Indexes()); err != nil {
+		logger.Fatal("ensuring mongo indexes", zap.Error(err))
+	}
+	indexCancel()
 
 	mux := router.New(mongoClient)
 	handler := middleware.Chain(
