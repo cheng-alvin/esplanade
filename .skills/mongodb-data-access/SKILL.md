@@ -3,37 +3,39 @@ name: mongodb-data-access
 description: >
   Work with MongoDB in the Esplanade Go backend server: build a new
   Mongo-backed resource (document struct, queries, indexes), query,
-  insert, update, or delete data with the mongo-driver, or reason about
-  audit fields, soft deletes, TTL expiry, error handling, or security
-  guarantees for database code. Use whenever the user wants to store,
-  query, update, or delete something in Mongo, add a new collection or
-  resource with persistence, touch `db/mongo/` or any per-resource
-  package, or asks how the server talks to the database — including the
-  auth resources (`users`, `auth_identities`, `sessions`,
-  `email_verification_tokens`, `password_reset_tokens`).
-  Persistence code calls the driver directly; do not introduce a
-  generic repository layer.
+  insert, update, or delete data with the shared `db/mongo` primitives
+  or the mongo-driver, or reason about audit fields, soft deletes, TTL
+  expiry, error handling, or security guarantees for database code. Use
+  whenever the user wants to store, query, update, or delete something
+  in Mongo, add a new collection or resource with persistence, touch
+  `db/mongo/` or any per-resource package, or asks how the server talks
+  to the database — including the auth resources (`users`,
+  `auth_identities`, `sessions`, `email_verification_tokens`,
+  `password_reset_tokens`). Persistence code builds on the thin
+  `Manager` and `Base` primitives; do not introduce a heavier
+  repository layer.
 ---
 
 # MongoDB Data Access
 
 This skill covers the data layer of the Esplanade Go backend server
 (`server/`): how it connects to MongoDB, and how to build a new
-resource (e.g. `devices`, or an auth resource like `sessions`) by
-calling the mongo-driver directly. It complements
+resource (e.g. `devices`, or an auth resource like `sessions`) on top
+of the shared primitives in `db/mongo/`. It complements
 `.skills/add-server-endpoint`, which covers the handler/router side —
 use both together when a new endpoint needs persistence.
 
-For the full narrative version of this guide, see
-`server/docs/MONGODB.md`. Persistence code in this codebase is plain
-driver calls — there is no generic CRUD/repository layer, and new code
-should not add one.
+Persistence code stays close to the driver: `esmongo.Manager` wraps one
+collection with the common CRUD operations and `esmongo.Base` carries
+the shared document fields, while anything the primitives do not cover
+goes through the raw `*mongo.Collection` the Manager exposes. Do not
+grow a heavier per-resource repository layer.
 
 ## Prerequisites
 
 - `db/mongo/` already exists and is wired into `main.go` — don't
-  recreate connection or error-translation plumbing, compose on top of
-  it.
+  recreate connection, error-translation, or primitive plumbing
+  (`Manager`, `Base`), compose on top of it.
 - Go version per `server/go.mod`, `mongo-driver/v2`.
 
 ## Layout
@@ -42,15 +44,19 @@ should not add one.
 server/
 ├── db/mongo/
 │   ├── mongo.go     ← connection lifecycle: New, Ping, Disconnect, Database, Collection
-│   └── errors.go    ← ErrNotFound, ErrConflict, TranslateError
+│   ├── manager.go   ← Manager: the common CRUD primitives over one collection
+│   ├── base.go      ← Base: the shared document fields, embeddable inline
+│   └── errors.go    ← ErrNotFound, ErrConflict, ErrInvalidID, TranslateError
 └── <resource>/      ← per-resource document types, queries, and indexes
                       (e.g. devices/, auth/repository/)
 ```
 
-`db/mongo` owns the connection and shared error translation. Neither it
-nor any other shared package knows anything about a specific resource —
-that domain knowledge lives in a per-resource package that holds a
-`*mongo.Collection` and issues driver calls itself.
+`db/mongo` owns the connection, shared error translation, and the thin
+primitives. None of it knows anything about a specific resource — that
+domain knowledge lives in a per-resource package, which declares its
+document types, typed queries, and indexes and uses an
+`*esmongo.Manager` (or the raw `*mongo.Collection` it exposes) to talk
+to Mongo.
 
 The connection itself is already wired up in `main.go`: a
 `*mongo.Client` is built once at startup via `esmongo.New(ctx, cfg)`,
@@ -67,20 +73,18 @@ Mongo."
 
 ### 1. Define the document type
 
-For an audit-aware resource, carry the audit fields directly on the
-struct — `_id`, `created_at`, `updated_at`, and `deleted_at`:
+Embed `esmongo.Base` to pick up `_id`, `created_at`, `updated_at`,
+`deleted_at`, and `purge_at`. The BSON codec does not flatten embedded
+structs implicitly, so the `,inline` tag is required:
 
 ```go
 // handler/devices/model.go
 package devices
 
-import "go.mongodb.org/mongo-driver/v2/bson"
+import esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
 
 type Device struct {
-    ObjectID  bson.ObjectID `bson:"_id,omitempty"`
-    CreatedAt time.Time     `bson:"created_at"`
-    UpdatedAt time.Time     `bson:"updated_at"`
-    DeletedAt *time.Time    `bson:"deleted_at,omitempty"`
+    esmongo.Base `bson:",inline"`
 
     Name   string `bson:"name"`
     Model  string `bson:"model"`
@@ -88,38 +92,31 @@ type Device struct {
 }
 ```
 
-A lightweight resource only needs `_id` plus the fields its schema
-requires — no audit fields, and deletes are permanent:
+Embedding is optional. A lightweight resource declares only the fields
+its schema needs — deletes are then permanent and there is no TTL — and
+a document with a different persisted shape implements just the setters
+`Manager.InsertOne` applies (`SetID`, `SetCreatedAt`, `SetUpdatedAt`).
 
-```go
-type LogEntry struct {
-    ObjectID bson.ObjectID `bson:"_id,omitempty"`
-    Message  string        `bson:"message"`
-}
-```
+### 2. Hold an `esmongo.Manager`, call its primitives
 
-### 2. Hold a collection, query it directly
-
-Give the resource's store (or data-layer package) a
-`*mongo.Collection` field — built in `main.go` via
+Give the resource's store (or data-layer package) an
+`*esmongo.Manager` field — built in `main.go` via
 `esmongo.Collection(mongoDB, "<collection>")` and passed in:
 
 ```go
-type Store struct{ collection *mongo.Collection }
+type Store struct{ devices *esmongo.Manager }
 
 func NewStore(collection *mongo.Collection) *Store {
-    return &Store{collection: collection}
+    return &Store{devices: esmongo.NewManager(collection)}
 }
 ```
 
-Insert paths set `_id` and, for audited resources, the audit
-timestamps:
+`InsertOne` fills `_id` and the audit timestamps in for
+`Base`-embedding documents, so an insert is one call:
 
 ```go
-func (s *Store) Insert(ctx context.Context, entry *LogEntry) error {
-    entry.ObjectID = bson.NewObjectID()
-    _, err := s.collection.InsertOne(ctx, entry)
-    return esmongo.TranslateError(err)
+func (s *Store) Insert(ctx context.Context, device *Device) error {
+    return s.devices.InsertOne(ctx, device)
 }
 ```
 
@@ -132,38 +129,37 @@ hard rule rather than a style preference:
 
 ```go
 func (s *Store) OnlineForUser(ctx context.Context, userID string) ([]*Device, error) {
-    cursor, err := s.collection.Find(ctx, bson.M{"user_id": userID, "online": true})
-    if err != nil {
-        return nil, esmongo.TranslateError(err)
-    }
     items := make([]*Device, 0)
-    if err := cursor.All(ctx, &items); err != nil {
-        return nil, esmongo.TranslateError(err)
+    if err := s.devices.FindMany(ctx, bson.M{"user_id": userID, "online": true}, &items); err != nil {
+        return nil, err
     }
     return items, nil
 }
 ```
 
-For a single document, use `FindOne(...).Decode(&doc)`; a miss
-surfaces as `mongo.ErrNoDocuments`, which `esmongo.TranslateError`
-maps to `esmongo.ErrNotFound`. For cursor pagination, use
-`options.Find().SetSort(...).SetLimit(...)` and a `_id > afterID`
-filter — never skip/limit.
+For a single document, use `FindOne`/`FindByID`; a miss surfaces as
+`esmongo.ErrNotFound`. When a string ID goes into a filter of your own,
+convert it with `esmongo.ParseObjectID` (malformed input returns
+`esmongo.ErrInvalidID`). For cursor pagination, pass
+`options.Find().SetSort(...).SetLimit(...)` through `FindMany` and use a
+`_id > afterID` filter — never skip/limit.
 
 ### 4. Manage audit fields, soft deletes, and TTLs in writes
 
 Audited resources follow these rules:
 
-- on insert, set `_id` (`bson.NewObjectID()`) and `created_at` /
-  `updated_at` (`time.Now().UTC()`);
-- on update, `$set` `updated_at` alongside the changed fields;
+- on insert, `Manager.InsertOne` fills `_id` and `created_at` /
+  `updated_at` for you;
+- on update, `$set` `updated_at` alongside the changed fields in the
+  caller-built update document;
 - on delete, soft delete by `$set`-ing `deleted_at` (and
   `updated_at`) instead of removing the document;
 - on every read and update, exclude soft-deleted documents with
-  `"deleted_at": bson.M{"$exists": false}`.
+  `"deleted_at": bson.M{"$exists": false}` in your filters.
 
-Return `esmongo.ErrNotFound` when a matched update (`MatchedCount ==
-0`) or lookup misses.
+`Manager.UpdateOne` and `Manager.DeleteOne` return
+`esmongo.ErrNotFound` when nothing matched; the batch variants report a
+count instead.
 
 For TTL-based expiry, store the expiry time on the document (e.g.
 `purge_at`) and declare the TTL on its index:
@@ -188,7 +184,7 @@ code from drifting apart.
 ### 5. Expose a narrow interface to the handler, not the concrete store
 
 A handler should depend on an interface with just the methods it
-actually calls (e.g. `FindByID`, `Find`), so handler tests can mock
+actually calls (e.g. `FindByID`, `FindMany`), so handler tests can mock
 exactly what they use, rather than standing up a real Mongo instance
 for every test.
 
@@ -202,7 +198,7 @@ resource's handlers rather than reaching for a package-level global:
 // handler/devices/devices.go
 func List(store Finder) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
-        // store.Find(...), respond.JSON(...)
+        // store.FindMany(...), respond.JSON(...)
     }
 }
 ```
@@ -218,10 +214,11 @@ same way `mongoClient` already is.
 
 ## Error handling
 
-`db/mongo/errors.go` defines two sentinels — `esmongo.ErrNotFound` and
-`esmongo.ErrConflict` (duplicate key) — and `esmongo.TranslateError`
-maps the raw driver errors into them. Resource code calls
-`TranslateError` on driver errors, so a handler just checks the
+`db/mongo/errors.go` defines the sentinels — `esmongo.ErrNotFound`,
+`esmongo.ErrConflict` (duplicate key), and `esmongo.ErrInvalidID`
+(malformed ID) — and `esmongo.TranslateError` maps raw driver errors
+into them. `Manager` methods translate for you; code still using the
+raw collection calls `TranslateError` itself. A handler just checks the
 sentinels and maps them to HTTP status codes with `respond.Error`:
 
 ```go
@@ -263,9 +260,10 @@ These are non-negotiable, not stylistic preferences:
 
 ## Anti-patterns to avoid
 
-- Reintroducing a generic repository/CRUD layer, or a per-resource
-  abstraction whose only job is to wrap driver calls in one more
-  method — persistence code calls the driver directly.
+- Growing a repository layer around the primitives: no
+  domain-specific methods on `Manager`, and no per-resource wrappers
+  whose only job is to repeat a single driver call — callers use the
+  primitives or the raw collection directly.
 - A package-level global `*mongo.Client` or collection instead of
   explicit dependency injection through `main.go` → `router.New` →
   handler constructor (matches how `cfg` and `logger` already flow).
