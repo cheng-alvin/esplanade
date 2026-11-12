@@ -15,6 +15,9 @@ var (
 
 	// Indicates a write is a duplicate of another document.
 	ErrConflict = errors.New("mongo: conflict")
+
+	// Indicates an ID string could not be parsed as a bson.ObjectID.
+	ErrInvalidID = errors.New("mongo: invalid id")
 )
 
 func TranslateError(err error) error {
