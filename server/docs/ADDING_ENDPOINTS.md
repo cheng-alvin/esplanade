@@ -142,7 +142,7 @@ server/
 ├── cmd/server/main.go           ← entrypoint (you won't usually edit this)
 ├── config/                      ← configuration loading
 ├── ctxkey/                      ← context key types
-├── db/mongo/                    ← Mongo connection lifecycle (see docs/MONGODB.md)
+├── db/mongo/                    ← Mongo lifecycle, CRUD primitives, error translation
 ├── handler/                     ← ★ your endpoint handlers go here
 │   └── widgets/widgets.go       ← example
 ├── logging/                     ← structured logger setup
