@@ -44,6 +44,9 @@ func New(mongoClient *mongo.Client, auth AuthDeps) *http.ServeMux {
 		mux.Handle("POST /api/v1/auth/logout", authmw.RequireAuth(auth.Verifier)(authh.Logout(auth.Service)))
 		mux.Handle("POST /api/v1/auth/logout-all", authmw.RequireAuth(auth.Verifier)(authh.LogoutAll(auth.Service)))
 		mux.Handle("GET /api/v1/auth/me", authmw.RequireAuth(auth.Verifier)(authh.Me(auth.Service)))
+
+		mux.HandleFunc("GET /api/v1/auth/verify-email", authh.VerifyEmail(auth.Service))
+		mux.Handle("POST /api/v1/auth/resend-verification", authmw.OptionalAuth(auth.Verifier)(authh.ResendVerification(auth.Service)))
 	}
 
 	return mux
