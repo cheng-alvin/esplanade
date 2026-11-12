@@ -29,6 +29,26 @@ type Config struct {
 	MongoServerSelectionTimeout time.Duration `yaml:"mongo_server_selection_timeout" env:"MONGO_SERVER_SELECTION_TIMEOUT"`
 	MongoMaxPoolSize            uint64        `yaml:"mongo_max_pool_size" env:"MONGO_MAX_POOL_SIZE"`
 	MongoMinPoolSize            uint64        `yaml:"mongo_min_pool_size" env:"MONGO_MIN_POOL_SIZE"`
+
+	JWTSecret string `yaml:"jwt_secret" env:"JWT_SECRET"`
+
+	AccessTokenTTL        time.Duration `yaml:"access_token_ttl" env:"ACCESS_TOKEN_TTL"`
+	RefreshTokenTTL       time.Duration `yaml:"refresh_token_ttl" env:"REFRESH_TOKEN_TTL"`
+	PurgeRetention        time.Duration `yaml:"purge_retention" env:"PURGE_RETENTION"`
+	VerificationTokenTTL  time.Duration `yaml:"verification_token_ttl" env:"VERIFICATION_TOKEN_TTL"`
+	PasswordResetTokenTTL time.Duration `yaml:"password_reset_token_ttl" env:"PASSWORD_RESET_TOKEN_TTL"`
+
+	AppBaseURL     string `yaml:"app_base_url" env:"APP_BASE_URL"`
+	GoogleClientID string `yaml:"google_client_id" env:"GOOGLE_CLIENT_ID"`
+
+	SMTPHost     string `yaml:"smtp_host" env:"SMTP_HOST"`
+	SMTPPort     int    `yaml:"smtp_port" env:"SMTP_PORT"`
+	SMTPUsername string `yaml:"smtp_username" env:"SMTP_USERNAME"`
+	SMTPPassword string `yaml:"smtp_password" env:"SMTP_PASSWORD"`
+	SMTPFrom     string `yaml:"smtp_from" env:"SMTP_FROM"`
+
+	ResendLimit  int           `yaml:"resend_limit" env:"RESEND_LIMIT"`
+	ResendWindow time.Duration `yaml:"resend_window" env:"RESEND_WINDOW"`
 }
 
 func (c *Config) Addr() string {
@@ -49,5 +69,16 @@ func defaults() *Config {
 		MongoServerSelectionTimeout: 10 * time.Second,
 		MongoMaxPoolSize:            100,
 		MongoMinPoolSize:            0,
+
+		AccessTokenTTL:        15 * time.Minute,
+		RefreshTokenTTL:       720 * time.Hour,
+		PurgeRetention:        720 * time.Hour,
+		VerificationTokenTTL:  24 * time.Hour,
+		PasswordResetTokenTTL: time.Hour,
+
+		SMTPPort: 587,
+
+		ResendLimit:  3,
+		ResendWindow: time.Hour,
 	}
 }

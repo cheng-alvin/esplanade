@@ -37,3 +37,35 @@ mongo_server_selection_timeout: 10s
 # Connection pool bounds.
 mongo_max_pool_size: 100
 mongo_min_pool_size: 0
+
+# Authentication settings.
+#
+# jwt_secret is intentionally NOT set here — it signs access tokens and
+# must come from the ESPLANADE_JWT_SECRET environment variable (or a
+# secret store) in every real environment.
+
+access_token_ttl: 15m
+refresh_token_ttl: 720h
+purge_retention: 720h
+verification_token_ttl: 24h
+password_reset_token_ttl: 1h
+
+# Base URL used to build email verification / password reset links. Leave
+# empty to emit relative links.
+app_base_url: ""
+
+# Google OAuth client ID used to verify Google ID tokens. Leave unset to
+# disable Google sign-in.
+# google_client_id: "<oauth-client-id>"
+
+# SMTP transport for outgoing mail. When smtp_host is unset, the server
+# logs email bodies instead of sending — development only.
+# smtp_host: smtp.example.com
+# smtp_port: 587
+# smtp_username: ""
+# smtp_password: ""   # never commit; supply via ESPLANADE_SMTP_PASSWORD
+# smtp_from: "Esplanade <no-reply@example.com>"
+
+# Resend-verification / password-reset request limits.
+resend_limit: 3
+resend_window: 1h

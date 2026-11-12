@@ -131,6 +131,8 @@ This produces:
 { "error": "invalid widget ID" }
 ```
 
+Domain failures should be sentinel errors declared by the package that owns the behaviour (`auth.ErrInvalidCredentials`, `esmongo.ErrNotFound`) — compare with `errors.Is` rather than matching message strings.
+
 ---
 
 ## Directory Layout Reference

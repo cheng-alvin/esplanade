@@ -59,6 +59,12 @@ import "github.com/cheng-alvin/esplanade/server/respond"
 - `respond.JSON(w, statusCode, data)` — write a JSON success response.
 - `respond.Error(w, statusCode, "message")` — write a JSON error response.
 
+Domain failures should be sentinel errors declared by the package that owns
+the behaviour (e.g. `auth.ErrInvalidCredentials`, `esmongo.ErrNotFound`) —
+never a central errors package, and never names that repeat the package
+(`AuthErr...`). Compare them with `errors.Is` in the handler and map each to
+its HTTP status rather than matching on message strings.
+
 Extract path parameters with `r.PathValue("paramName")`.
 
 Decode JSON request bodies with:
