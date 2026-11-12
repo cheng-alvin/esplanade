@@ -62,10 +62,12 @@ local-first or E2E guarantees.
   Logging → Recovery → CORS), and the graceful shutdown sequence in `main.go`.
 - Use `respond.JSON()` / `respond.Error()` for all HTTP responses — never write raw
   JSON.
-- MongoDB access: resource packages hold a `*mongo.Collection` and call the
-  mongo-driver directly — there is no generic repository layer. Keep audit
-  fields, soft deletes (`deleted_at`), and TTL indexes owned by the resource
-  package.
+- MongoDB access: build on the thin `db/mongo` primitives — `esmongo.Manager`
+  for the common CRUD operations on a collection (raw `*mongo.Collection` stays
+  available via `Manager.Collection()`), `esmongo.Base` for the shared document
+  fields. Don't grow a heavier repository layer; resource packages build their
+  own typed filters (never from raw client input) and own soft deletes
+  (`deleted_at`) and TTL indexes.
 - Route Mongo errors through `db/mongo/errors.go`'s `TranslateError()` rather than
   checking `mongo.Is...` directly.
 - Sentinel errors belong to the package that owns the behaviour they represent
