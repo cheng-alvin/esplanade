@@ -25,8 +25,15 @@ func (s *AuthService) VerifyEmail(ctx context.Context, rawToken string) error {
 		return err
 	}
 
-	pending := user.EmailAuth
-	if pending == nil || pending.VerificationToken == nil || !pending.VerificationToken.ExpiresAt.After(time.Now().UTC()) {
+	
+	if user.EmailAuth == nil {
+		return autherr.ErrUnsupportedProvider
+	}
+
+	token := user.EmailAuth.VerificationToken
+	token_expired := !token.ExpiresAt.After(time.Now().UTC())
+
+	if token == nil || token_expired {
 		return autherr.ErrTokenInvalid
 	}
 
