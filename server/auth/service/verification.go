@@ -25,7 +25,6 @@ func (s *AuthService) VerifyEmail(ctx context.Context, rawToken string) error {
 		return err
 	}
 
-	
 	if user.EmailAuth == nil {
 		return autherr.ErrUnsupportedProvider
 	}
@@ -42,43 +41,45 @@ func (s *AuthService) VerifyEmail(ctx context.Context, rawToken string) error {
 
 // ResendVerification reissues a verification token. Authenticated callers
 // resend to their own address; unauthenticated callers submit an address and
-// receive the enumeration-safe response either way. The limiter is applied
-// before any lookup so a rejection cannot reveal whether the account exists,
-// and it is the primary abuse control for this email-sending endpoint (R3).
+// receive the enumeration-safe response either way. For unauthenticated
+// callers the limiter runs before any lookup so a rejection cannot reveal
+// whether the account exists; it is the primary abuse control for this
+// email-sending endpoint (R3).
 func (s *AuthService) ResendVerification(ctx context.Context, userID, email string) error {
 	now := time.Now().UTC()
+	authenticated := userID != ""
 
-	if userID != "" {
-		user, err := s.users.FindByID(ctx, userID)
+	var user *authrepo.User
+
+	if authenticated {
+		var err error
+		user, err = s.users.FindByID(ctx, userID)
 		if err != nil {
 			return err
 		}
-		if user.EmailAuth == nil || user.EmailAuth.EmailVerified || user.GoogleAuth != nil {
+	} else {
+		normalized, err := emailprovider.NormalizeEmail(email)
+		if err != nil {
+			return err
+		}
+
+		user, err = s.users.FindByEmail(ctx, normalized)
+		if err != nil {
+			if errors.Is(err, esmongo.ErrNotFound) {
+				return autherr.ErrUserNotFound
+			}
+			return err
+		}
+	}
+
+	if user.EmailAuth == nil || user.EmailAuth.EmailVerified {
+		if authenticated {
 			return autherr.ErrEmailAlreadyVerified
 		}
-		if !s.limiter.Allow("resend:" + user.Email) {
-			return autherr.ErrRateLimited
-		}
-		return s.issueVerification(ctx, user, now)
+		return autherr.ErrProviderNotFound
 	}
-
-	normalized, err := emailprovider.NormalizeEmail(email)
-	if err != nil {
-		return err
-	}
-	if !s.limiter.Allow("resend:" + normalized) {
+	if !s.limiter.Allow("resend:" + user.Email) {
 		return autherr.ErrRateLimited
-	}
-
-	user, err := s.users.FindByEmail(ctx, normalized)
-	if err != nil {
-		if errors.Is(err, esmongo.ErrNotFound) {
-			return nil
-		}
-		return err
-	}
-	if user.EmailAuth == nil || user.EmailAuth.EmailVerified || user.GoogleAuth != nil {
-		return nil
 	}
 	return s.issueVerification(ctx, user, now)
 }
