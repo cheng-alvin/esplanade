@@ -1,13 +1,13 @@
 // Package mongo provides MongoDB connection lifecycle management and the
 // shared data-access primitives for the Esplanade server: client
 // construction, health checks, graceful shutdown, error translation, a Base
-// document carrying the common fields, and a thin Manager with the common
-// CRUD operations over a single collection.
+// document carrying the common fields, and a thin generic Manager with the
+// common CRUD operations over a single collection.
 //
 // The Manager is a convenience, not a boundary: callers can always drop to
 // the *mongo.Collection it wraps. Filters and updates stay the caller's
-// job — build them from typed parameters, never from raw client input — and
-// resource-specific query logic does not belong in this package.
+// job — build bson.M values from typed parameters, never from raw client
+// input — and resource-specific query logic does not belong in this package.
 package mongo
 
 import (
