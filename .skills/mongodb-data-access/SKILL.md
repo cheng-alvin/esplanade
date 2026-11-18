@@ -12,8 +12,8 @@ description: >
   to the database — including the auth resources (`users`,
   `auth_identities`, `sessions`, `email_verification_tokens`,
   `password_reset_tokens`). Persistence code builds on the thin
-  `Manager` and `Base` primitives; do not introduce a heavier
-  repository layer.
+  `Manager`, `Base`, and `BaseAudited` primitives; do not introduce a
+  heavier repository layer.
 ---
 
 # MongoDB Data Access
@@ -26,16 +26,17 @@ of the shared primitives in `db/mongo/`. It complements
 use both together when a new endpoint needs persistence.
 
 Persistence code stays close to the driver: `esmongo.Manager[T]` wraps one
-collection with the common CRUD operations for document type T, and
-`esmongo.Base` carries the shared document fields, while anything the
-primitives do not cover goes through the raw `*mongo.Collection` the
-Manager exposes. Do not grow a heavier per-resource repository layer.
+collection with the common CRUD operations for document type T, while
+`esmongo.Base` carries document identity and `esmongo.BaseAudited` adds the
+audit, soft-delete, and TTL fields. Anything the primitives do not cover goes
+through the raw `*mongo.Collection` the Manager exposes. Do not grow a heavier
+per-resource repository layer.
 
 ## Prerequisites
 
 - `db/mongo/` already exists and is wired into `main.go` — don't
   recreate connection, error-translation, or primitive plumbing
-  (`Manager`, `Base`), compose on top of it.
+  (`Manager`, `Base`, `BaseAudited`), compose on top of it.
 - Go version per `server/go.mod`, `mongo-driver/v2`.
 
 ## Layout
@@ -45,7 +46,7 @@ server/
 ├── db/mongo/
 │   ├── mongo.go     ← connection lifecycle: New, Ping, Disconnect, Database, Collection
 │   ├── manager.go   ← generic Manager: the common CRUD primitives over one collection
-│   ├── base.go      ← Base: the shared document fields, embeddable inline
+│   ├── base.go      ← Base / BaseAudited: shared document fields, embeddable inline
 │   └── errors.go    ← ErrNotFound, ErrConflict, ErrInvalidID, TranslateError
 └── <resource>/      ← per-resource document types, queries, and indexes
                       (e.g. devices/, auth/repository/)
@@ -73,9 +74,10 @@ Mongo."
 
 ### 1. Define the document type
 
-Embed `esmongo.Base` to pick up `_id`, `created_at`, `updated_at`,
-`deleted_at`, and `purge_at`. The BSON codec does not flatten embedded
-structs implicitly, so the `,inline` tag is required:
+Embed `esmongo.BaseAudited` to pick up `_id`, `created_at`, `updated_at`,
+`deleted_at`, and `purge_at`. Use `esmongo.Base` when the resource only needs
+the Mongo document identity. The BSON codec does not flatten embedded structs
+implicitly, so the `,inline` tag is required:
 
 ```go
 // handler/devices/model.go
@@ -84,7 +86,7 @@ package devices
 import esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
 
 type Device struct {
-    esmongo.Base `bson:",inline"`
+    esmongo.BaseAudited `bson:",inline"`
 
     Name   string `bson:"name"`
     Model  string `bson:"model"`
@@ -92,10 +94,11 @@ type Device struct {
 }
 ```
 
-Embedding is optional. A lightweight resource declares only the fields
-its schema needs — deletes are then permanent and there is no TTL — and
-a document with a different persisted shape implements just the setters
-`Manager.InsertOne` applies (`SetID`, `SetCreatedAt`, `SetUpdatedAt`).
+Embedding is optional. A lightweight resource can embed `esmongo.Base` for
+just `_id`, or declare only the fields its schema needs — deletes are then
+permanent and there is no TTL. A document with a different persisted shape
+implements just the setters `Manager.InsertOne` applies (`SetID`,
+`SetCreatedAt`, `SetUpdatedAt`).
 
 ### 2. Hold an `esmongo.Manager[T]`, call its primitives
 
@@ -111,8 +114,8 @@ func NewStore(collection *mongo.Collection) *Store {
 }
 ```
 
-`InsertOne` fills `_id` and the audit timestamps in for
-`Base`-embedding documents, so an insert is one call:
+`InsertOne` fills `_id` and, for audited documents, the audit timestamps, so
+an insert is one call:
 
 ```go
 func (s *Store) Insert(ctx context.Context, device *Device) error {

@@ -65,10 +65,11 @@ local-first or E2E guarantees.
 - MongoDB access: build on the thin `db/mongo` primitives — `esmongo.Manager[T]`
   for the common CRUD operations on a collection, instantiated with the
   resource's document type (raw `*mongo.Collection` stays available via
-  `Manager.Collection()`), `esmongo.Base` for the shared document fields. Don't
-  grow a heavier repository layer; resource packages build their own typed
-  `bson.M` filters (never from raw client input) and own soft deletes
-  (`deleted_at`) and TTL indexes.
+  `Manager.Collection()`), `esmongo.Base` for document identity and
+  `esmongo.BaseAudited` for audit, soft-delete, and TTL fields. Don't grow a
+  heavier repository layer; resource packages build their own typed `bson.M`
+  filters (never from raw client input) and own soft deletes (`deleted_at`) and
+  TTL indexes.
 - Route Mongo errors through `db/mongo/errors.go`'s `TranslateError()` rather than
   checking `mongo.Is...` directly.
 - Sentinel errors belong to the package that owns the behaviour they represent
