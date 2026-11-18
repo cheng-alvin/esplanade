@@ -25,11 +25,11 @@ of the shared primitives in `db/mongo/`. It complements
 `.skills/add-server-endpoint`, which covers the handler/router side —
 use both together when a new endpoint needs persistence.
 
-Persistence code stays close to the driver: `esmongo.Manager` wraps one
-collection with the common CRUD operations and `esmongo.Base` carries
-the shared document fields, while anything the primitives do not cover
-goes through the raw `*mongo.Collection` the Manager exposes. Do not
-grow a heavier per-resource repository layer.
+Persistence code stays close to the driver: `esmongo.Manager[T]` wraps one
+collection with the common CRUD operations for document type T, and
+`esmongo.Base` carries the shared document fields, while anything the
+primitives do not cover goes through the raw `*mongo.Collection` the
+Manager exposes. Do not grow a heavier per-resource repository layer.
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ grow a heavier per-resource repository layer.
 server/
 ├── db/mongo/
 │   ├── mongo.go     ← connection lifecycle: New, Ping, Disconnect, Database, Collection
-│   ├── manager.go   ← Manager: the common CRUD primitives over one collection
+│   ├── manager.go   ← generic Manager: the common CRUD primitives over one collection
 │   ├── base.go      ← Base: the shared document fields, embeddable inline
 │   └── errors.go    ← ErrNotFound, ErrConflict, ErrInvalidID, TranslateError
 └── <resource>/      ← per-resource document types, queries, and indexes
@@ -55,7 +55,7 @@ server/
 primitives. None of it knows anything about a specific resource — that
 domain knowledge lives in a per-resource package, which declares its
 document types, typed queries, and indexes and uses an
-`*esmongo.Manager` (or the raw `*mongo.Collection` it exposes) to talk
+`*esmongo.Manager[T]` (or the raw `*mongo.Collection` it exposes) to talk
 to Mongo.
 
 The connection itself is already wired up in `main.go`: a
@@ -97,17 +97,17 @@ its schema needs — deletes are then permanent and there is no TTL — and
 a document with a different persisted shape implements just the setters
 `Manager.InsertOne` applies (`SetID`, `SetCreatedAt`, `SetUpdatedAt`).
 
-### 2. Hold an `esmongo.Manager`, call its primitives
+### 2. Hold an `esmongo.Manager[T]`, call its primitives
 
 Give the resource's store (or data-layer package) an
-`*esmongo.Manager` field — built in `main.go` via
+`*esmongo.Manager[Device]` field — built in `main.go` via
 `esmongo.Collection(mongoDB, "<collection>")` and passed in:
 
 ```go
-type Store struct{ devices *esmongo.Manager }
+type Store struct{ devices *esmongo.Manager[Device] }
 
 func NewStore(collection *mongo.Collection) *Store {
-    return &Store{devices: esmongo.NewManager(collection)}
+    return &Store{devices: esmongo.NewManager[Device](collection)}
 }
 ```
 
@@ -140,9 +140,10 @@ func (s *Store) OnlineForUser(ctx context.Context, userID string) ([]*Device, er
 For a single document, use `FindOne`/`FindByID`; a miss surfaces as
 `esmongo.ErrNotFound`. When a string ID goes into a filter of your own,
 convert it with `esmongo.ParseObjectID` (malformed input returns
-`esmongo.ErrInvalidID`). For cursor pagination, pass
-`options.Find().SetSort(...).SetLimit(...)` through `FindMany` and use a
-`_id > afterID` filter — never skip/limit.
+`esmongo.ErrInvalidID`). The primitives take `bson.M` filters and updates
+rather than driver options. For cursor pagination, use `Collection()` with
+`options.Find().SetSort(...).SetLimit(...)` and a `_id > afterID` filter —
+never skip/limit.
 
 ### 4. Manage audit fields, soft deletes, and TTLs in writes
 

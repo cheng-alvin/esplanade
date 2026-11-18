@@ -79,8 +79,8 @@ if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 
 If a handler needs to read or write data, follow
 `.skills/mongodb-data-access` to build the resource's data layer — a
-store holding an `*esmongo.Manager` whose queries build on the shared
-`db/mongo` primitives — and have the handler depend on a narrow
+store holding an `*esmongo.Manager[Document]` whose queries build on the
+shared `db/mongo` primitives — and have the handler depend on a narrow
 interface to it, injected as shown in step 3.
 
 ### 3. Register routes in the router
