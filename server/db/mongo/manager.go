@@ -32,19 +32,19 @@ func (m *Manager[T]) Collection() *mongo.Collection {
 	return m.collection
 }
 
-// The setters InsertOne applies to the base properties it can reach. Base
-// implements all three; a document with a different persisted shape can
-// implement any subset, and each property is filled independently.
+// The setters InsertOne applies to the document properties it can reach.
+// BaseAudited implements all three; a document with a different persisted
+// shape can implement any subset, and each property is filled independently.
 type (
 	idSetter        interface{ SetID(bson.ObjectID) }
 	createdAtSetter interface{ SetCreatedAt(time.Time) }
 	updatedAtSetter interface{ SetUpdatedAt(time.Time) }
 )
 
-// InsertOne fills in the base properties doc supports — a fresh ObjectID for
-// documents with SetID (replacing any ID already set), the current UTC time
-// for documents with SetCreatedAt or SetUpdatedAt — then inserts it. Pass a
-// pointer to the document so those setters are reachable. Duplicate-key
+// InsertOne fills in the document properties doc supports — a fresh ObjectID
+// for documents with SetID (replacing any ID already set), the current UTC
+// time for documents with SetCreatedAt or SetUpdatedAt — then inserts it.
+// Pass a pointer to the document so those setters are reachable. Duplicate-key
 // conflicts from unique indexes surface as ErrConflict.
 func (m *Manager[T]) InsertOne(ctx context.Context, doc *T) error {
 	now := time.Now().UTC()
