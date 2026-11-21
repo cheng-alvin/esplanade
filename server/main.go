@@ -9,12 +9,14 @@ import (
 	"syscall"
 	"time"
 
+	authrepo "github.com/cheng-alvin/esplanade/server/auth/repository"
 	"github.com/cheng-alvin/esplanade/server/config"
 	esmongo "github.com/cheng-alvin/esplanade/server/db/mongo"
 	"github.com/cheng-alvin/esplanade/server/devices"
 	"github.com/cheng-alvin/esplanade/server/logging"
 	"github.com/cheng-alvin/esplanade/server/middleware"
 	"github.com/cheng-alvin/esplanade/server/router"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.uber.org/zap"
 )
 
@@ -47,8 +49,19 @@ func main() {
 	mongoDB := esmongo.Database(mongoClient, cfg.MongoDatabase)
 
 	indexCtx, indexCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if _, err := mongoDB.Collection(devices.DeviceCollection).Indexes().CreateMany(indexCtx, devices.Device{}.Indexes()); err != nil {
-		logger.Fatal("ensuring mongo indexes", zap.Error(err))
+	indexes := []struct {
+		collection string
+		models     []mongo.IndexModel
+	}{
+		{devices.DeviceCollection, devices.Device{}.Indexes()},
+		{authrepo.UserCollection, authrepo.User{}.Indexes()},
+		{authrepo.SessionCollection, authrepo.Session{}.Indexes()},
+		{authrepo.PasswordResetCollection, authrepo.PasswordResetToken{}.Indexes()},
+	}
+	for _, index := range indexes {
+		if _, err := mongoDB.Collection(index.collection).Indexes().CreateMany(indexCtx, index.models); err != nil {
+			logger.Fatal("ensuring mongo indexes", zap.String("collection", index.collection), zap.Error(err))
+		}
 	}
 	indexCancel()
 
