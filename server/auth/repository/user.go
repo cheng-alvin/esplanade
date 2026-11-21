@@ -24,12 +24,6 @@ const (
 	AuthProviderGoogle AuthProvider = "google"
 )
 
-const (
-	UserStatusActive    = "active"
-	UserStatusSuspended = "suspended"
-	UserStatusDeleted   = "deleted"
-)
-
 // AuthMethodCommon is embedded in every provider-specific auth method.
 type AuthMethodCommon struct {
 	Provider  AuthProvider `bson:"provider"`
@@ -67,7 +61,6 @@ type User struct {
 	Email       string        `bson:"email"`
 	DisplayName string        `bson:"display_name"`
 	AvatarURL   *string       `bson:"avatar_url"`
-	Status      string        `bson:"status"`
 
 	DeviceIDs   []string `bson:"device_ids,omitempty"`
 	DeviceCount int      `bson:"device_count"`
