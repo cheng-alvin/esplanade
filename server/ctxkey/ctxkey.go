@@ -7,4 +7,10 @@ type key int
 const (
 	// RequestID is the context key for the per-request unique identifier.
 	RequestID key = iota
+
+	// UserID is the context key for the authenticated user's ID.
+	UserID
+
+	// DeviceID is the context key for the authenticated device's ID.
+	DeviceID
 )
