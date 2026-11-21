@@ -42,6 +42,15 @@ type resendRequest struct {
 	Email string `json:"email"`
 }
 
+type forgotRequest struct {
+	Email string `json:"email"`
+}
+
+type resetRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
 		respond.ErrorCode(w, http.StatusBadRequest, "invalid_request", "invalid request body")
